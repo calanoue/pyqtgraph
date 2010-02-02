@@ -284,7 +284,7 @@ class GraphicsView(QtGui.QGraphicsView):
                 #scale[0] = 1. / scale[0]
             self.scale(scale[0], scale[1])
             self.emit(QtCore.SIGNAL('regionChanged(QRectF)'), self.range)
-        elif ev.buttons() == QtCore.Qt.MidButton:
+        elif ev.buttons() == QtCore.Qt.LeftButton:
             tr = -delta / self.currentScale
             
             self.translate(tr[0], tr[1])

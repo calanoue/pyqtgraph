@@ -34,6 +34,8 @@ class ImageView(QtGui.QWidget):
         self.imageDisp = None
         self.ui = Ui_Form()
         self.ui.setupUi(self)
+        #self.scene = QtGui.QGraphicsScene()
+        #self.ui.graphicsView.setScene(self.scene)
         self.scene = self.ui.graphicsView.sceneObj
         self.ui.graphicsView.enableMouse(True)
         self.ui.graphicsView.autoPixelRange = False
@@ -53,18 +55,14 @@ class ImageView(QtGui.QWidget):
         self.roi.hide()
         self.ui.roiPlot.hide()
         self.roiCurve = self.ui.roiPlot.plot()
-        self.roiTimeLine = InfiniteLine(self.ui.roiPlot, 0)
+        #self.roiTimeLine = Qwt.QwtPlotMarker()
+        #self.roiTimeLine.setLinePen(QtGui.QPen(QtGui.QColor(255, 255, 0)))
+        #self.roiTimeLine.setLineStyle(Qwt.QwtPlotMarker.VLine)
+        #self.roiTimeLine.setXValue(0)
+        #self.roiTimeLine.attach(self.ui.roiPlot)
+        self.roiTimeLine = QtGui.QGraphicsLineItem()
         self.roiTimeLine.setPen(QtGui.QPen(QtGui.QColor(255, 255, 0, 200)))
         self.ui.roiPlot.addItem(self.roiTimeLine)
-        
-        self.normLines = []
-        for i in [0,1]:
-            l = InfiniteLine(self.ui.roiPlot, 0)
-            l.setPen(QtGui.QPen(QtGui.QColor(0, 100, 200, 200)))
-            self.ui.roiPlot.addItem(l)
-            self.normLines.append(l)
-            l.hide()
-            
 
         QtCore.QObject.connect(self.ui.timeSlider, QtCore.SIGNAL('valueChanged(int)'), self.timeChanged)
         QtCore.QObject.connect(self.ui.whiteSlider, QtCore.SIGNAL('valueChanged(int)'), self.updateImage)
@@ -84,16 +82,6 @@ class ImageView(QtGui.QWidget):
         self.ui.roiPlot.registerPlot(self.name + '_ROI')
 
     def updateNorm(self):
-        for l, sl in zip(self.normLines, [self.ui.normStartSlider, self.ui.normStopSlider]):
-            if self.ui.normTimeRangeCheck.isChecked():
-                l.show()
-            else:
-                l.hide()
-            
-            i, t = self.timeIndex(sl)
-            l.setPos(t)
-        
-        
         self.imageDisp = None
         self.updateImage()
         self.roiChanged()
@@ -128,20 +116,19 @@ class ImageView(QtGui.QWidget):
             self.roiCurve.setData(y=data, x=self.tVals)
             #self.ui.roiPlot.replot()
 
-    def setImage(self, img, autoRange=True):
+    def setImage(self, img):
         self.image = img
         if hasattr(img, 'xvals'):
             self.tVals = img.xvals(0)
         else:
             self.tVals = arange(img.shape[0])
         self.ui.timeSlider.setValue(0)
-        #self.ui.normStartSlider.setValue(0)
+        self.ui.normStartSlider.setValue(0)
         #self.ui.timeSlider.setMaximum(img.shape[0]-1)
             
         self.imageDisp = None
         self.updateImage()
-        if autoRange:
-            self.autoRange()
+        self.autoRange()
         if self.ui.roiBtn.isChecked():
             self.roiChanged()
         
@@ -195,7 +182,7 @@ class ImageView(QtGui.QWidget):
         if ind != self.currentIndex:
             self.currentIndex = ind
             self.updateImage()
-        self.roiTimeLine.setPos(time)
+        self.roiTimeLine.setLine(time, -1e6, time, 1e6)
         #self.ui.roiPlot.replot()
         self.emit(QtCore.SIGNAL('timeChanged'), ind, time)
 
