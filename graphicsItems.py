@@ -1265,9 +1265,9 @@ class ViewBox(QtGui.QGraphicsWidget):
             p.drawRect(bounds)
 
 
-class InfiniteLine(QtGui.QGraphicsItem):
-    def __init__(self, view, pos, angle=90, pen=None):
-        QtGui.QGraphicsItem.__init__(self)
+class InfiniteLine(UIGraphicsItem):
+    def __init__(self, view, pos, angle=90, pen=None, bounds=None):
+        UIGraphicsItem.__init__(self, view, bounds)
         self.view = view
         self.p = [0, 0]
         self.setAngle(angle)
@@ -1301,6 +1301,7 @@ class InfiniteLine(QtGui.QGraphicsItem):
                 
     def updateLine(self):
         vr = self.view.viewRect()
+        unit = self.unitRect()
         
         if self.angle > 45:
             m = tan((90-self.angle) * pi / 180.)
@@ -1320,9 +1321,11 @@ class InfiniteLine(QtGui.QGraphicsItem):
         self.bounds = QtCore.QRectF(self.line[0], self.line[1])
         ## Stupid bug causes lines to disappear:
         if self.bounds.width() == 0:
-            self.bounds.setWidth(1e-9)
+            self.bounds.setWidth(16*unit.width())
+            self.bounds.setLeft(-8*unit.width())
         if self.bounds.height() == 0:
-            self.bounds.setHeight(1e-9)
+            self.bounds.setHeight(16*unit.height())
+            self.bounds.setTop(-8*unit.height())
         #QtGui.QGraphicsLineItem.setLine(self, x1, y1, x2, y2)
         
     def boundingRect(self):
@@ -1335,6 +1338,11 @@ class InfiniteLine(QtGui.QGraphicsItem):
         p.setPen(self.pen)
         #print "paint", self.line
         p.drawLine(self.line[0], self.line[1])
+        
+    def mousePressEvent(self, ev):
+        print 'Infinite line got a click!'
+        ev.ignore()
+        
         
 
 class VTickGroup(QtGui.QGraphicsPathItem):
