@@ -41,3 +41,5 @@ class PlotWidget(GraphicsView):
     def restoreState(self, state):
         return self.plotItem.restoreState(state)
         
+    def getPlotItem(self):
+        return self.plotItem

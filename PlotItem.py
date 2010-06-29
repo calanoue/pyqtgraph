@@ -291,23 +291,31 @@ class PlotItem(QtGui.QGraphicsWidget):
     def yLinkComboChanged(self):
         self.setYLink(str(self.ctrl.yLinkCombo.currentText()))
 
-    def setXLink(self, plotName=None):
-        if self.manager is None:
-            return
-        if self.xLinkPlot is not None:
-            self.manager.unlinkX(self, self.xLinkPlot)
-        plot = self.manager.getWidget(plotName)
+    def setXLink(self, plot=None):
+        """Link this plot's X axis to another plot (pass either the PlotItem/PlotWidget or the registered name of the plot)"""
+        if isinstance(plot, basestring):
+            if self.manager is None:
+                return
+            if self.xLinkPlot is not None:
+                self.manager.unlinkX(self, self.xLinkPlot)
+            plot = self.manager.getWidget(plot)
+        if not isinstance(plot, PlotItem) and hasattr(plot, 'getPlotItem'):
+            plot = plot.getPlotItem()
         self.xLinkPlot = plot
         if plot is not None:
             self.setManualXScale()
             self.manager.linkX(self, plot)
             
-    def setYLink(self, plotName=None):
-        if self.manager is None:
-            return
-        if self.yLinkPlot is not None:
-            self.manager.unlinkY(self, self.yLinkPlot)
-        plot = self.manager.getWidget(plotName)
+    def setYLink(self, plot=None):
+        """Link this plot's Y axis to another plot (pass either the PlotItem/PlotWidget or the registered name of the plot)"""
+        if isinstance(plot, basestring):
+            if self.manager is None:
+                return
+            if self.yLinkPlot is not None:
+                self.manager.unlinkY(self, self.yLinkPlot)
+            plot = self.manager.getWidget(plot)
+        if not isinstance(plot, PlotItem) and hasattr(plot, 'getPlotItem'):
+            plot = plot.getPlotItem()
         self.yLinkPlot = plot
         if plot is not None:
             self.setManualYScale()
