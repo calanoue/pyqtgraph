@@ -5,7 +5,6 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 ## This example uses a ViewBox to create a PlotWidget-like interface
-import PySideImporter
 
 #from scipy import random
 import numpy as np

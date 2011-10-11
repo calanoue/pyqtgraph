@@ -1343,7 +1343,7 @@ class ScatterPlotItem(GraphicsObject):
     sigClicked = QtCore.Signal(object, object)  ## self, points
     
     def __init__(self, spots=None, x=None, y=None, pxMode=True, pen='default', brush='default', size=5, 
-        style='default', identical=False, data=None):
+        style=None, identical=False, data=None):
         """
         Arguments:
             spots: list of dicts. Each dict specifies parameters for a single spot.
@@ -1368,16 +1368,12 @@ class ScatterPlotItem(GraphicsObject):
         else:
             self.pen = mkPen(pen)
         
-        if style == 'default':
-            self.style = None
-        else:
-            self.style = style
-            
+        self.style = style
         self.size = size
         
         self.pxMode = pxMode
         if spots is not None or x is not None:
-            self.setPoints(spots, x, y, data, style)
+            self.setPoints(spots, x, y, data)
             
         #self.optimize = optimize
         #if optimize:
@@ -1408,12 +1404,24 @@ class ScatterPlotItem(GraphicsObject):
     def getRange(self, ax, percent):
         return self.range[ax]
         
-    def setPoints(self, spots=None, x=None, y=None, data=None, style=None):
+    def setPoints(self, spots=None, x=None, y=None, data=None):
+        """
+        Remove all existing points in the scatter plot and add a new set.
+        Arguments:
+            spots - list of dicts specifying parameters for each spot
+                    [ {'pos': (x,y), 'pen': 'r', ...}, ...]
+            x, y -  arrays specifying location of spots to add. 
+                    all other parameters (pen, style, etc.) will be set to the default
+                    values for this scatter plot.
+                    these arguments are IGNORED if 'spots' is specified
+            data -  list of arbitrary objects to be assigned to spot.data for each spot
+                    (this is useful for identifying spots that are clicked on)
+        """
         self.clear()
         self.range = [[0,0],[0,0]]
-        self.addPoints(spots, x, y, data, style=None)
+        self.addPoints(spots, x, y, data)
 
-    def addPoints(self, spots=None, x=None, y=None, data=None, style=None):
+    def addPoints(self, spots=None, x=None, y=None, data=None):
         xmn = ymn = xmx = ymx = None
         if spots is not None:
             n = len(spots)
@@ -1449,6 +1457,7 @@ class ScatterPlotItem(GraphicsObject):
             brush = s.get('brush', self.brush)
             pen = s.get('pen', self.pen)
             pen.setCosmetic(True)
+            style = s.get('style', self.style)
             data2 = s.get('data', None)
             item = self.mkSpot(pos, size, self.pxMode, brush, pen, data2, style=style, index=len(self.spots))
             self.spots.append(item)
@@ -1474,19 +1483,27 @@ class ScatterPlotItem(GraphicsObject):
         pass
 
     def spotPixmap(self):
+        ## If all spots are identical, return the pixmap to use for all spots
+        ## Otherwise return None
+        
         if not self.identical:
             return None
         if self._spotPixmap is None:
-            print 'spotPixmap'
-            self._spotPixmap = PixmapSpotItem.makeSpotImage(self.size, self.pen, self.brush, self.style)
+            #print 'spotPixmap'
+            spot = SpotItem(size=self.size, pxMode=True, brush=self.brush, pen=self.pen, style=self.style)
+            #self._spotPixmap = PixmapSpotItem.makeSpotImage(self.size, self.pen, self.brush, self.style)
+            self._spotPixmap = spot.pixmap
         return self._spotPixmap
 
     def mkSpot(self, pos, size, pxMode, brush, pen, data, style=None, index=None):
+        ## Make and return a SpotItem (or PixmapSpotItem if in pxMode)
+        
         brush = mkBrush(brush)
         pen = mkPen(pen)
         if pxMode:
-            img = self.spotPixmap()
-            item = PixmapSpotItem(size, brush, pen, data, image=img, index=index)
+            img = self.spotPixmap()  ## returns None if not using identical mode
+            #item = PixmapSpotItem(size, brush, pen, data, image=img, style=style, index=index)
+            item = SpotItem(size, pxMode, brush, pen, data, style=style, image=img, index=index)
         else:
             item = SpotItem(size, pxMode, brush, pen, data, style=style, index=index)
         item.setParentItem(self)
@@ -1560,11 +1577,16 @@ class ScatterPlotItem(GraphicsObject):
 class SpotItem(QtGui.QGraphicsWidget):
     #sigClicked = QtCore.Signal(object)
     
-    def __init__(self, size, pxMode, brush, pen, data, style=None, index=None):
+    def __init__(self, size, pxMode, brush, pen, data=None, style=None, image=None, index=None):
         QtGui.QGraphicsWidget.__init__(self)
         self.pxMode = pxMode
-            
+
+        if style is None:
+            style = 'o'    ## circle by default
+        elif isinstance(style, int):  ## allow styles specified by integer for easy iteration
+            style = ['o', 's', 't', 'd', '+'][style]
         ####print 'SpotItem style: ', style
+        self.data = data
         self.pen = pen
         self.brush = brush
         self.size = size
@@ -1580,13 +1602,15 @@ class SpotItem(QtGui.QGraphicsWidget):
             self.path.moveTo(-0.5, -0.5)
             self.path.lineTo(0, 0.5)
             self.path.lineTo(0.5, -0.5)
-            self.path.connectPath(self.path)
+            self.path.closeSubpath()
+            #self.path.connectPath(self.path)
         elif style == 'd':
             self.path.moveTo(0., -0.5)
             self.path.lineTo(-0.4, 0.)
             self.path.lineTo(0, 0.5)
             self.path.lineTo(0.4, 0)
-            self.path.connectPath(self.path)
+            self.path.closeSubpath()
+            #self.path.connectPath(self.path)
         elif style == '+':
             self.path.moveTo(-0.5, -0.01)
             self.path.lineTo(-0.5, 0.01)
@@ -1600,27 +1624,38 @@ class SpotItem(QtGui.QGraphicsWidget):
             self.path.lineTo(0.01, -0.5)
             self.path.lineTo(-0.01, -0.5)
             self.path.lineTo(-0.01, -0.01)
-            self.path.connectPath(self.path)
+            self.path.closeSubpath()
+            #self.path.connectPath(self.path)
         #elif style == 'x':
-        else: # default is the circle - also "none"
-            self.path.addEllipse(QtCore.QRectF(-0.5, -0.5, 1, 1))
+        else:
+            raise Exception("Unknown spot style '%s'" % style)
+            #self.path.addEllipse(QtCore.QRectF(-0.5, -0.5, 1, 1))
         
         if pxMode:
-            #self.setCacheMode(self.DeviceCoordinateCache)   ## broken.
-            self.setFlags(self.flags() | self.ItemIgnoresTransformations)
-            self.spotImage = QtGui.QImage(size, size, QtGui.QImage.Format_ARGB32_Premultiplied)
-            self.spotImage.fill(0)
-            p = QtGui.QPainter(self.spotImage)
-            p.setRenderHint(p.Antialiasing)
-            p.setBrush(brush)
-            p.setPen(pen)
-            p.drawEllipse(0, 0, size, size)
-            p.end()
-            self.pixmap = QtGui.QPixmap(self.spotImage)
+            ## pre-render an image of the spot and display this rather than redrawing every time.
+            if image is None:
+                self.pixmap = self.makeSpotImage(size, pen, brush, style)
+            else:
+                self.pixmap = image ## image is already provided (probably shared with other spots)
+            self.setFlags(self.flags() | self.ItemIgnoresTransformations | self.ItemHasNoContents)
+            self.pi = QtGui.QGraphicsPixmapItem(self.pixmap, self)
+            self.pi.setPos(-0.5*size, -0.5*size)
         else:
             self.scale(size, size)
-        self.data = data
-        
+
+
+    def makeSpotImage(self, size, pen, brush, style=None):
+        self.spotImage = QtGui.QImage(size+2, size+2, QtGui.QImage.Format_ARGB32_Premultiplied)
+        self.spotImage.fill(0)
+        p = QtGui.QPainter(self.spotImage)
+        p.setRenderHint(p.Antialiasing)
+        p.translate(size*0.5+1, size*0.5+1)
+        p.scale(size, size)
+        self.paint(p, None, None)
+        p.end()
+        return QtGui.QPixmap(self.spotImage)
+
+
     def setBrush(self, brush):
         self.brush = mkBrush(brush)
         self.update()
@@ -1636,12 +1671,9 @@ class SpotItem(QtGui.QGraphicsWidget):
         return self.path
         
     def paint(self, p, *opts):
-        if self.pxMode:
-            p.drawPixmap(QtCore.QPoint(int(-0.5*self.size), int(-0.5*self.size)), self.pixmap)
-        else:
-            p.setPen(self.pen)
-            p.setBrush(self.brush)
-            p.drawPath(self.path)
+        p.setPen(self.pen)
+        p.setBrush(self.brush)
+        p.drawPath(self.path)
         
     #def mousePressEvent(self, ev):
         #QtGui.QGraphicsItem.mousePressEvent(self, ev)
@@ -1663,92 +1695,92 @@ class SpotItem(QtGui.QGraphicsWidget):
         #if not self.mouseMoved:
             #self.sigClicked.emit(self)
         
-class PixmapSpotItem(QtGui.QGraphicsItem):
-    #sigClicked = QtCore.Signal(object)
+#class PixmapSpotItem(QtGui.QGraphicsItem):
+    ##sigClicked = QtCore.Signal(object)
     
-    def __init__(self, size, brush, pen, data, image=None, style=None, index=None):
-        """This class draws a scale-invariant image centered at 0,0.
-        If no image is specified, then an antialiased circle is constructed instead.
-        It should be quite fast, but large spots will use a lot of memory."""
+    #def __init__(self, size, brush, pen, data, image=None, style=None, index=None):
+        #"""This class draws a scale-invariant image centered at 0,0.
+        #If no image is specified, then an antialiased circle is constructed instead.
+        #It should be quite fast, but large spots will use a lot of memory."""
         
-        QtGui.QGraphicsItem.__init__(self)
-        self.pen = pen
-        self.brush = brush
-        self.size = size
-        self.style = style
-        self.index = index
-        self.setFlags(self.flags() | self.ItemIgnoresTransformations | self.ItemHasNoContents)
-        if image is None:
-            self.image = self.makeSpotImage(self.size, self.pen, self.brush, style=style)
-        else:
-            self.image = image
-        self.pixmap = QtGui.QPixmap(self.image)
-        #self.setPixmap(self.pixmap)
-        self.data = data
-        self.pi = QtGui.QGraphicsPixmapItem(self.pixmap, self)
-        self.pi.setPos(-0.5*size, -0.5*size)
+        #QtGui.QGraphicsItem.__init__(self)
+        #self.pen = pen
+        #self.brush = brush
+        #self.size = size
+        #self.style = style
+        #self.index = index
+        #self.setFlags(self.flags() | self.ItemIgnoresTransformations | self.ItemHasNoContents)
+        #if image is None:
+            #self.image = self.makeSpotImage(self.size, self.pen, self.brush, style=style)
+        #else:
+            #self.image = image
+        #self.pixmap = QtGui.QPixmap(self.image)
+        ##self.setPixmap(self.pixmap)
+        #self.data = data
+        #self.pi = QtGui.QGraphicsPixmapItem(self.pixmap, self)
+        #self.pi.setPos(-0.5*size, -0.5*size)
         
-        #self.translate(-0.5, -0.5)
-    def boundingRect(self):
-        return self.pi.boundingRect()
+        ##self.translate(-0.5, -0.5)
+    #def boundingRect(self):
+        #return self.pi.boundingRect()
         
-    @staticmethod
-    def makeSpotImage(size, pen, brush, style=None):
-        img = QtGui.QImage(size+2, size+2, QtGui.QImage.Format_ARGB32_Premultiplied)
-        img.fill(0)
-        p = QtGui.QPainter(img)
-        try:
-            p.setRenderHint(p.Antialiasing)
-            p.setBrush(brush)
-            p.setPen(pen)
-#            print 'mkspotimage style: ', style
-            if style is 'o': # circle
-                p.drawEllipse(0, 0, size, size)
-            elif style == 's': # square
-                p.drawRect(QtCore.QRectF(0., 0., size, size))
-            elif style is 't' or style is '^': # triangle
-                path = QtGui.QPainterPath()
-                ppath=QtGui.QPolygonF([QtCore.QPointF(0, size), 
-                    QtCore.QPointF(size, size), QtCore.QPointF((size/2.0), 0),
-                    QtCore.QPointF(0, size)])
-                path.addPolygon(ppath)
-                p.drawPath(path)
-            elif style == 'd': # diamond
-                path=QtGui.QPainterPath()
-                ppath = QtGui.QPolygonF([QtCore.QPointF(0.1*size, 0.5*size), QtCore.QPointF(0.5*size, 0.0),
-                    QtCore.QPointF(0.9*size, 0.5*size),QtCore.QPointF(0.5*size, size)])
-                path.addPolygon(ppath)
-                p.drawPath(path)
-            elif style == '+': # plus, obviously
-                path=QtGui.QPainterPath()
-                path.moveTo(size/2, 0.0)
-                path.lineTo(size/2, size)
-                path.moveTo(0, size/2)
-                path.lineTo(size, size/2)
-                p.drawPath(path)
-            elif style == 'x': # x, obviously
-                path=QtGui.QPainterPath()
-                path.moveTo(0., 0.0)
-                path.lineTo(size, size)
-                path.moveTo(0, size)
-                path.lineTo(size, 0)
-                p.drawPath(path)
-            elif style == '*': # asterix (sic), obviously
-                path=QtGui.QPainterPath()
-                path.moveTo(0., 0.0)
-                path.lineTo(size, size)
-                path.moveTo(0, size)
-                path.lineTo(size, 0)
-                path.moveTo(size/2.0, 0)
-                path.lineTo(size/2.0, size)
-                path.moveTo(0., size/2.0)
-                path.lineTo(size, size/2.0)
-                p.drawPath(path)
-            else: # default is the circle - also "none"
-                p.drawEllipse(0, 0, size, size)
-        finally:
-            p.end()  ## failure to end a painter properly causes crash.
-        return img
+    #@staticmethod
+    #def makeSpotImage(size, pen, brush, style=None):
+        #img = QtGui.QImage(size+2, size+2, QtGui.QImage.Format_ARGB32_Premultiplied)
+        #img.fill(0)
+        #p = QtGui.QPainter(img)
+        #try:
+            #p.setRenderHint(p.Antialiasing)
+            #p.setBrush(brush)
+            #p.setPen(pen)
+##            print 'mkspotimage style: ', style
+            #if style is 'o': # circle
+                #p.drawEllipse(0, 0, size, size)
+            #elif style == 's': # square
+                #p.drawRect(QtCore.QRectF(0., 0., size, size))
+            #elif style is 't' or style is '^': # triangle
+                #path = QtGui.QPainterPath()
+                #ppath=QtGui.QPolygonF([QtCore.QPointF(0, size), 
+                    #QtCore.QPointF(size, size), QtCore.QPointF((size/2.0), 0),
+                    #QtCore.QPointF(0, size)])
+                #path.addPolygon(ppath)
+                #p.drawPath(path)
+            #elif style == 'd': # diamond
+                #path=QtGui.QPainterPath()
+                #ppath = QtGui.QPolygonF([QtCore.QPointF(0.1*size, 0.5*size), QtCore.QPointF(0.5*size, 0.0),
+                    #QtCore.QPointF(0.9*size, 0.5*size),QtCore.QPointF(0.5*size, size)])
+                #path.addPolygon(ppath)
+                #p.drawPath(path)
+            #elif style == '+': # plus, obviously
+                #path=QtGui.QPainterPath()
+                #path.moveTo(size/2, 0.0)
+                #path.lineTo(size/2, size)
+                #path.moveTo(0, size/2)
+                #path.lineTo(size, size/2)
+                #p.drawPath(path)
+            #elif style == 'x': # x, obviously
+                #path=QtGui.QPainterPath()
+                #path.moveTo(0., 0.0)
+                #path.lineTo(size, size)
+                #path.moveTo(0, size)
+                #path.lineTo(size, 0)
+                #p.drawPath(path)
+            #elif style == '*': # asterix (sic), obviously
+                #path=QtGui.QPainterPath()
+                #path.moveTo(0., 0.0)
+                #path.lineTo(size, size)
+                #path.moveTo(0, size)
+                #path.lineTo(size, 0)
+                #path.moveTo(size/2.0, 0)
+                #path.lineTo(size/2.0, size)
+                #path.moveTo(0., size/2.0)
+                #path.lineTo(size, size/2.0)
+                #p.drawPath(path)
+            #else: # default is the circle - also "none"
+                #p.drawEllipse(0, 0, size, size)
+        #finally:
+            #p.end()  ## failure to end a painter properly causes crash.
+        #return img
         
         
         
@@ -2296,6 +2328,7 @@ class ViewBox(QtGui.QGraphicsWidget):
         self.wheelScaleFactor = -1.0 / 8.0
         self.aspectLocked = False
         self.setFlag(QtGui.QGraphicsItem.ItemClipsChildrenToShape)
+        self.setFlag(self.ItemIsFocusable)  ## so we can receive key presses
         #self.setFlag(QtGui.QGraphicsItem.ItemClipsToShape)
         #self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
         
@@ -2304,15 +2337,20 @@ class ViewBox(QtGui.QGraphicsWidget):
         self.currentScale = Point(1, 1)
         self.useLeftButtonPan = False # normally use left button to drag a rect for sizing
         # this also enables capture of keyPressEvents.
-        self.rbScaleBox = None
-        self.rbPositionStack = [] # a stack to keep track of zoom and unzoom actions
+        
+        ## Make scale box that is shown when dragging on the view
+        self.rbScaleBox = QtGui.QGraphicsRectItem(0, 0, 1, 1)
+        self.rbScaleBox.setPen(mkPen((255,0,0), width=1))
+        self.rbScaleBox.setBrush(mkBrush(255,255,0,100))
+        self.addItem(self.rbScaleBox)
+        self.rbScaleBox.hide()
+        
+        self.axHistory = [] # maintain a history of zoom locations
+        self.axHistoryPointer = -1 # pointer into the history. Allows forward/backward movement, not just "undo"
+        
         self.yInverted = False
-        #self.invertY()
         self.setZValue(-100)
-        #self.picture = None
         self.setSizePolicy(QtGui.QSizePolicy(QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Expanding))
-        self.axHistory = [] # maintain a history
-        self.axHistoryPointer = None # pointer into the history. Allows forward/backward movement, not just "undo"
         
         self.border = border
         
@@ -2329,10 +2367,27 @@ class ViewBox(QtGui.QGraphicsWidget):
          
         """
         print ev.key()
-        print 'I intercepted a key press, but did not accept it'
+        #print 'I intercepted a key press, but did not accept it'
         
-        self.keypress.sigkeyPressEvent.emit()
-               
+        ## not implemented yet ?
+        #self.keypress.sigkeyPressEvent.emit()
+        
+        ev.accept()
+        if ev.text() == '-':
+            self.scaleHistory(-1)
+        elif ev.text() in ['+', '=']:
+            self.scaleHistory(1)
+        elif ev.key() == QtCore.Qt.Key_Backspace:
+            self.scaleHistory(len(self.axHistory))
+        else:
+            ev.ignore()
+
+    def scaleHistory(self, d):
+        ptr = max(0, min(len(self.axHistory)-1, self.axHistoryPointer+d))
+        if ptr != self.axHistoryPointer:
+            self.axHistoryPointer = ptr
+            self.showAxRect(self.axHistory[ptr])
+
     def setLeftButtonAction(self, mode='Rect'):
         if mode.lower() == 'rect':
             self.useLeftButtonPan = False
@@ -2351,7 +2406,7 @@ class ViewBox(QtGui.QGraphicsWidget):
         if item.zValue() < self.zValue():
             item.setZValue(self.zValue()+1)
         item.setParentItem(self.childGroup)
-#        print "addItem:", item, item.boundingRect()
+        #print "addItem:", item, item.boundingRect()
         
     def removeItem(self, item):
         self.scene().removeItem(item)
@@ -2498,24 +2553,29 @@ class ViewBox(QtGui.QGraphicsWidget):
         dif *= -1
         self.mousePos = pos
         
+
+
         ## Ignore axes if mouse is disabled
         mask = np.array(self.mouseEnabled, dtype=np.float)
-        if self.useLeftButtonPan == False and self.rbScaleBox is not None:
-            ax = self.mouseRect()
-            self.rbScaleBox.setRect(ax)
-            self.sigRangeChangedManually.emit(self.mouseEnabled)
-            ev.accept()
-            return
 
         ## Scale or translate based on mouse button
         if ev.buttons() & (QtCore.Qt.LeftButton | QtCore.Qt.MidButton):
-            if not self.yInverted:
-                mask *= np.array([1, -1])
-            tr = dif*mask
-            self.translateBy(tr, viewCoords=True)
-            #self.emit(QtCore.SIGNAL('rangeChangedManually'), self.mouseEnabled)
-            self.sigRangeChangedManually.emit(self.mouseEnabled)
-            ev.accept()
+            if self.useLeftButtonPan == False:
+                ## update scale box
+                self.updateScaleBox()
+                #ax = self.mouseRect()
+                #self.rbScaleBox.setRect(ax)
+                #self.sigRangeChangedManually.emit(self.mouseEnabled)
+                ## don't emit until scale has changed
+                ev.accept()
+            else:
+                if not self.yInverted:
+                    mask *= np.array([1, -1])
+                tr = dif*mask
+                self.translateBy(tr, viewCoords=True)
+                #self.emit(QtCore.SIGNAL('rangeChangedManually'), self.mouseEnabled)
+                self.sigRangeChangedManually.emit(self.mouseEnabled)
+                ev.accept()
         elif ev.buttons() & QtCore.Qt.RightButton:
             if self.aspectLocked is not False:
                 mask[0] = 0
@@ -2534,39 +2594,30 @@ class ViewBox(QtGui.QGraphicsWidget):
 
     def mousePressEvent(self, ev):
         QtGui.QGraphicsWidget.mousePressEvent(self, ev)
-        if self.rbScaleBox is not None:
-            self.removeItem(self.rbScaleBox)
-            del self.rbScaleBox
-            self.rbScaleBox = None
+        #if self.rbScaleBox is not None:
+            #self.removeItem(self.rbScaleBox)
+            #del self.rbScaleBox
+            #self.rbScaleBox = None
+            
+        self.mousePos = np.array([ev.pos().x(), ev.pos().y()])
+        self.pressPos = self.mousePos.copy()
+        
         # check modifiers first:
-        mmods = ev.modifiers()
-        if mmods == 0:
-            self.mousePos = np.array([ev.pos().x(), ev.pos().y()])
-            self.pressPos = self.mousePos.copy()
-            if self.useLeftButtonPan == False: # start rectangle
-                self.rbScaleBox = QtGui.QGraphicsRectItem(self.mouseRect())
-                p = self.rbScaleBox.pen()
-                p.setColor(QtGui.QColor(255,0,0,255))
-                self.rbScaleBox.setBrush(QtGui.QBrush(QtGui.QColor(255,255,0,100)))
-                p.setWidth(3)
-                self.addItem(self.rbScaleBox)
-                self.rbScaleBox.show()
-        else:
-            if mmods == QtCore.Qt.ControlModifier:
-                ax = self.axHistory(self.axHistoryPointer)
-                self.showAxRect(ax)
-                print 'Previous'
-            if mmods == QtCore.Qt.MetaModifier:
-                if self.axHistoryPointer+1 < len(self.axHistory):
-                    self.axHistoryPointer = self.axHistoryPointer+1
-                    self.showAxRect(self.AxHistory(self.axHistoryPointer+1))
-                print 'Next'
-            if mmods == QtCore.Qt.ShiftModifier:
-                self.axHistoryPointer = None
-                self.axHistory = []
-                print 'cleared'
-            if mmods == QtCore.Qt.AltModifier:
-                print 'alt'
+        #mmods = ev.modifiers()
+        #if mmods == QtCore.Qt.ControlModifier:
+            #ax = self.axHistory(self.axHistoryPointer)
+            #self.showAxRect(ax)
+            ##print 'Previous'
+        #elif mmods == QtCore.Qt.MetaModifier:
+            #if self.axHistoryPointer+1 < len(self.axHistory):
+                #self.axHistoryPointer += 1
+                #self.showAxRect(self.AxHistory(self.axHistoryPointer+1))
+            ##print 'Next'
+        #elif mmods == QtCore.Qt.ShiftModifier:
+            #self.axHistoryPointer = None
+            #self.axHistory = []
+            ##print 'cleared'
+        #elif mmods == QtCore.Qt.AltModifier:
 
             
         ev.accept()
@@ -2578,34 +2629,42 @@ class ViewBox(QtGui.QGraphicsWidget):
             #if ev.button() == QtCore.Qt.RightButton:
                 #self.ctrlMenu.popup(self.mapToGlobal(ev.pos()))
         self.mousePos = pos
-        if self.useLeftButtonPan == False:
-            if self.rbScaleBox is not None:
-                self.removeItem(self.rbScaleBox)
-                del self.rbScaleBox # remove the rectangle
-                self.rbScaleBox = None
-            ax = self.mouseRect()
-            self.showAxRect(ax)
-            ev.accept()
-            # handle graphic history
-            if self.axHistoryPointer == None:
-                self.axHistoryPointer = 0
-                self.axHistory[0] = ax
-            else:
-                self.axHistoryPointer = self.axHistoryPointer + 1
-            if len(self.axHistory) < self.axHistoryPointer:
-                self.axHistory.append(ax)
+        if ev.button() & (QtCore.Qt.LeftButton | QtCore.Qt.MidButton) and self.useLeftButtonPan == False:
+            #if self.rbScaleBox is not None:
+                #self.removeItem(self.rbScaleBox)
+                ##del self.rbScaleBox # remove the rectangle
+                #self.rbScaleBox = None
+            #ax = self.mouseRect()
+            
+            ## Get rectangle from drag
+            if self.rbScaleBox.isVisible():
+                self.rbScaleBox.hide()
+                ax = QtCore.QRectF(Point(self.pressPos), Point(self.mousePos))
+                ax = self.childGroup.mapRectFromParent(ax)
+                self.showAxRect(ax)
+                ev.accept()
+                self.axHistoryPointer += 1
+                self.axHistory = self.axHistory[:self.axHistoryPointer] + [ax]
+
+    def updateScaleBox(self):
+        r = QtCore.QRectF(Point(self.pressPos), Point(self.mousePos))
+        r = self.childGroup.mapRectFromParent(r)
+        self.rbScaleBox.setPos(r.topLeft())
+        self.rbScaleBox.resetTransform()
+        self.rbScaleBox.scale(r.width(), r.height())
+        self.rbScaleBox.show()
 
     def showAxRect(self, ax):
         self.setRange(ax.normalized()) # be sure w, h are correct coordinates
         self.sigRangeChangedManually.emit(self.mouseEnabled)
 
-    def mouseRect(self):
-        vs = self.viewScale()
-        vr = self.viewRange
-        # Convert positions from screen (view) pixel coordinates to axis coordinates 
-        ax = QtCore.QRectF(self.pressPos[0]/vs[0]+vr[0][0], -(self.pressPos[1]/vs[1]-vr[1][1]),
-            (self.mousePos[0]-self.pressPos[0])/vs[0], -(self.mousePos[1]-self.pressPos[1])/vs[1])
-        return(ax)
+    #def mouseRect(self):
+        #vs = self.viewScale()
+        #vr = self.viewRange
+        ## Convert positions from screen (view) pixel coordinates to axis coordinates 
+        #ax = QtCore.QRectF(self.pressPos[0]/vs[0]+vr[0][0], -(self.pressPos[1]/vs[1]-vr[1][1]),
+            #(self.mousePos[0]-self.pressPos[0])/vs[0], -(self.mousePos[1]-self.pressPos[1])/vs[1])
+        #return(ax)
 
     def setRange(self, ax, min=None, max=None, padding=0.02, update=True):
         if isinstance(ax, QtCore.QRectF):
@@ -3072,7 +3131,7 @@ class LinearRegionItem(GraphicsObject):
         self.lines[0].setValue(rgn[0])
         self.blockLineSignal = False
         self.lines[1].setValue(rgn[1])
-        self.blockLineSignal = False
+        #self.blockLineSignal = False
         self.lineMoved()
         self.lineMoveFinished()
 
