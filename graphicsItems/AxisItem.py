@@ -398,3 +398,14 @@ class AxisItem(QtGui.QGraphicsWidget):
         else:
             self.linkedView().wheelEvent(ev, axis=0)
         ev.accept()
+
+    def mouseMoveEvent(self, ev):
+        if self.linkedView is None or self.linkedView() is None: return
+        if self.orientation in ['left', 'right']:
+            self.linkedView().mouseMoveEvent(ev, axis=1)
+        else:
+            self.linkedView().mouseMoveEvent(ev, axis=0)
+        ev.accept()
+
+    def mousePressEvent(self, ev):
+        self.linkedView().mousePressEvent(ev)

@@ -249,15 +249,16 @@ class ViewBox(QtGui.QGraphicsWidget):
         self.sigRangeChangedManually.emit(self.mouseEnabled)
         ev.accept()
 
-    def mouseMoveEvent(self, ev):
+    def mouseMoveEvent(self, ev, axis=None):
         QtGui.QGraphicsWidget.mouseMoveEvent(self, ev)
         pos = np.array([ev.pos().x(), ev.pos().y()])
         dif = pos - self.mousePos
+        if axis is not None and axis in (0, 1):
+            # restrict transform to single axis if given
+            dif[1-axis] = 0
         dif *= -1
         self.mousePos = pos
         
-
-
         ## Ignore axes if mouse is disabled
         mask = np.array(self.mouseEnabled, dtype=np.float)
 
