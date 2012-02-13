@@ -9,7 +9,7 @@ class ScatterPlotItem(GraphicsObject):
     sigClicked = QtCore.Signal(object, object)  ## self, points
     
     def __init__(self, spots=None, x=None, y=None, pxMode=True, pen='default', brush='default', size=5, 
-        style=None, identical=False, data=None):
+        style=None, identical=False, data=None, toolTips=None):
             
         """
         Arguments:
@@ -28,6 +28,8 @@ class ScatterPlotItem(GraphicsObject):
         self.range = [[0,0], [0,0]]
         self.identical = identical
         self._spotPixmap = None
+        # a QString with formatting like "(%1, %2)"
+        self.toolTips = toolTips
         
         if brush == 'default':
             self.brush = QtGui.QBrush(QtGui.QColor(100, 100, 150))
@@ -180,6 +182,8 @@ class ScatterPlotItem(GraphicsObject):
         item.setParentItem(self)
         item.setPos(pos)
         #item.sigClicked.connect(self.pointClicked)
+        if type(self.toolTips) is QtCore.QString:
+            item.setToolTip(self.toolTips.arg(pos.x()).arg(pos.y()))
         return item
         
     def boundingRect(self):
