@@ -1,11 +1,8 @@
-#!/usr/bin/python
 # -*- coding: utf-8 -*-
-## Add path to library (just for examples; you do not need this)
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+import initExample ## Add path to library (just for examples; you do not need this)
 
 
-from PyQt4 import QtGui, QtCore
+from pyqtgraph.Qt import QtGui, QtCore
 import numpy as np
 import pyqtgraph as pg
 
@@ -32,10 +29,14 @@ p1 = pw.plot()
 p1.setPen((200,200,100))
 
 ## Add in some extra graphics
-rect = QtGui.QGraphicsRectItem(QtCore.QRectF(0, 0, 1, 1e-10))
+rect = QtGui.QGraphicsRectItem(QtCore.QRectF(0, 0, 1, 5e-11))
 rect.setPen(QtGui.QPen(QtGui.QColor(100, 200, 100)))
 pw.addItem(rect)
 
+pw.setLabel('left', 'Value', units='V')
+pw.setLabel('bottom', 'Time', units='s')
+pw.setXRange(0, 2)
+pw.setYRange(0, 1e-10)
 
 def rand(n):
     data = np.random.random(n)
@@ -49,7 +50,7 @@ def rand(n):
 
 def updateData():
     yd, xd = rand(10000)
-    p1.updateData(yd, x=xd)
+    p1.setData(y=yd, x=xd)
 
 ## Start a timer to rapidly update the plot in pw
 t = QtCore.QTimer()
@@ -64,11 +65,23 @@ for i in range(0, 5):
         pw2.plot(y=yd*(j+1), x=xd, params={'iter': i, 'val': j})
 
 ## Test large numbers
-curve = pw3.plot(np.random.normal(size=100)*1e6)
+curve = pw3.plot(np.random.normal(size=100)*1e0, clickable=True)
 curve.setPen('w')  ## white pen
 curve.setShadowPen(pg.mkPen((70,70,30), width=6, cosmetic=True))
 
+def clicked():
+    print "curve clicked"
+curve.sigClicked.connect(clicked)
 
-## Start Qt event loop unless running in interactive mode.
-if sys.flags.interactive != 1:
+lr = pg.LinearRegionItem([1, 30], bounds=[0,100], movable=True)
+pw3.addItem(lr)
+line = pg.InfiniteLine(angle=90, movable=True)
+pw3.addItem(line)
+line.setBounds([0,200])
+
+import initExample ## Add path to library (just for examples; you do not need this)
+
+## Start Qt event loop unless running in interactive mode or using pyside.
+import sys
+if (sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION'):
     app.exec_()

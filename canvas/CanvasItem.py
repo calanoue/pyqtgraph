@@ -1,21 +1,22 @@
 # -*- coding: utf-8 -*-
 from pyqtgraph.Qt import QtGui, QtCore, QtSvg
-from pyqtgraph import widgets
+from pyqtgraph.graphicsItems.ROI import ROI
 import pyqtgraph as pg
 import TransformGuiTemplate
-import debug
+from pyqtgraph import debug
 
-class SelectBox(widgets.ROI):
-    def __init__(self, scalable=False):
+class SelectBox(ROI):
+    def __init__(self, scalable=False, rotatable=True):
         #QtGui.QGraphicsRectItem.__init__(self, 0, 0, size[0], size[1])
-        widgets.ROI.__init__(self, [0,0], [1,1])
+        ROI.__init__(self, [0,0], [1,1], invertible=True)
         center = [0.5, 0.5]
             
         if scalable:
             self.addScaleHandle([1, 1], center, lockAspect=True)
             self.addScaleHandle([0, 0], center, lockAspect=True)
-        self.addRotateHandle([0, 1], center)
-        self.addRotateHandle([1, 0], center)
+        if rotatable:
+            self.addRotateHandle([0, 1], center)
+            self.addRotateHandle([1, 0], center)
 
 class CanvasItem(QtCore.QObject):
     
@@ -30,7 +31,7 @@ class CanvasItem(QtCore.QObject):
     transformCopyBuffer = None
     
     def __init__(self, item, **opts):
-        defOpts = {'name': None, 'z': None, 'movable': True, 'scalable': False, 'visible': True, 'parent':None} #'pos': [0,0], 'scale': [1,1], 'angle':0,
+        defOpts = {'name': None, 'z': None, 'movable': True, 'scalable': False, 'rotatable': True, 'visible': True, 'parent':None} #'pos': [0,0], 'scale': [1,1], 'angle':0,
         defOpts.update(opts)
         self.opts = defOpts
         self.selectedAlone = False  ## whether this item is the only one selected
@@ -91,11 +92,11 @@ class CanvasItem(QtCore.QObject):
             self.baseTransform = self.opts['transform']
         else:
             self.baseTransform = pg.Transform()
-            if 'pos' in self.opts:
+            if 'pos' in self.opts and self.opts['pos'] is not None:
                 self.baseTransform.translate(self.opts['pos'])
-            if 'angle' in self.opts:
+            if 'angle' in self.opts and self.opts['angle'] is not None:
                 self.baseTransform.rotate(self.opts['angle'])
-            if 'scale' in self.opts:
+            if 'scale' in self.opts and self.opts['scale'] is not None:
                 self.baseTransform.scale(self.opts['scale'])
 
         ## create selection box (only visible when selected)
@@ -105,7 +106,7 @@ class CanvasItem(QtCore.QObject):
             
         ## every CanvasItem implements its own individual selection box 
         ## so that subclasses are free to make their own.
-        self.selectBox = SelectBox(scalable=self.opts['scalable'])
+        self.selectBox = SelectBox(scalable=self.opts['scalable'], rotatable=self.opts['rotatable'])
         #self.canvas.scene().addItem(self.selectBox)
         self.selectBox.hide()
         self.selectBox.setZValue(1e6)
@@ -121,7 +122,9 @@ class CanvasItem(QtCore.QObject):
         self.tempTransform = pg.Transform() ## holds the additional transform that happens during a move - gets added to the userTransform when move is done.
         self.userTransform = pg.Transform() ## stores the total transform of the object
         self.resetUserTransform() 
-        self.selectBoxBase = self.selectBox.getState().copy()
+        
+        ## now happens inside resetUserTransform -> selectBoxToItem
+        # self.selectBoxBase = self.selectBox.getState().copy()
         
                 
         #print "Created canvas item", self
@@ -168,7 +171,8 @@ class CanvasItem(QtCore.QObject):
     def setParentItem(self, parent):
         self._parentItem = parent
         if parent is not None:
-            parent = parent.graphicsItem()
+            if isinstance(parent, CanvasItem):
+                parent = parent.graphicsItem()
         self.graphicsItem().setParentItem(parent)
 
     #def name(self):
@@ -337,7 +341,7 @@ class CanvasItem(QtCore.QObject):
         self.selectBox.blockSignals(False)
         self.sigTransformChanged.emit(self)
         self.sigTransformChangeFinished.emit(self)
-        
+       
     def resetTransformClicked(self):
         self.resetUserTransform()
         self.sigResetUserTransform.emit(self)
@@ -384,12 +388,13 @@ class CanvasItem(QtCore.QObject):
 
     def selectBoxToItem(self):
         """Move/scale the selection box so it fits the item's bounding rect. (assumes item is not rotated)"""
-        rect = self._graphicsItem.sceneBoundingRect()
         self.itemRect = self._graphicsItem.boundingRect()
+        rect = self._graphicsItem.mapRectToParent(self.itemRect)
         self.selectBox.blockSignals(True)
         self.selectBox.setPos([rect.x(), rect.y()])
         self.selectBox.setSize(rect.size())
         self.selectBox.setAngle(0)
+        self.selectBoxBase = self.selectBox.getState().copy()
         self.selectBox.blockSignals(False)
 
     def zValue(self):

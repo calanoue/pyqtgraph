@@ -3,14 +3,14 @@ import sys, os
 ## Add path to library (just for examples; you do not need this)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from PyQt4 import QtGui, QtCore
+from pyqtgraph.Qt import QtGui, QtCore
 import pyqtgraph as pg
 import numpy as np
 
 app = QtGui.QApplication([])
 mw = QtGui.QMainWindow()
 mw.resize(800,800)
-view = pg.GraphicsLayoutView()  ## GraphicsView with GraphicsLayout inserted by default
+view = pg.GraphicsLayoutWidget()  ## GraphicsView with GraphicsLayout inserted by default
 mw.setCentralWidget(view)
 mw.show()
 
@@ -36,7 +36,7 @@ s1 = pg.ScatterPlotItem(size=10, pen=pg.mkPen(None), brush=pg.mkBrush(255, 255, 
 pos = np.random.normal(size=(2,n), scale=1e-5)
 spots = [{'pos': pos[:,i], 'data': 1} for i in range(n)] + [{'pos': [0,0], 'data': 1}]
 s1.addPoints(spots)
-w1.addDataItem(s1)
+w1.addItem(s1)
 
 ## This plot is clickable
 def clicked(plot, points):
@@ -51,7 +51,7 @@ s1.sigClicked.connect(clicked)
 
 s2 = pg.ScatterPlotItem(size=10, pen=pg.mkPen('w'), pxMode=True)
 pos = np.random.normal(size=(2,n), scale=1e-5)
-spots = [{'pos': pos[:,i], 'data': 1, 'brush':pg.intColor(i, n), 'style': i%5, 'size': 5+i/10.} for i in xrange(n)]
+spots = [{'pos': pos[:,i], 'data': 1, 'brush':pg.intColor(i, n), 'symbol': i%5, 'size': 5+i/10.} for i in xrange(n)]
 s2.addPoints(spots)
 w2.addItem(s2)
 w2.setRange(s2.boundingRect())
@@ -68,7 +68,7 @@ for i in range(10):
     for j in range(10):
         spots3.append({'pos': (1e-6*i, 1e-6*j), 'size': 1e-6, 'brush':pg.intColor(i*10+j, 100)})
 s3.addPoints(spots3)
-w3.addDataItem(s3)
+w3.addItem(s3)
 s3.sigClicked.connect(clicked)
 
 
@@ -77,7 +77,7 @@ s3.sigClicked.connect(clicked)
 s4 = pg.ScatterPlotItem(size=10, pen=pg.mkPen(None), brush=pg.mkBrush(255, 255, 255, 20), identical=True)
 pos = np.random.normal(size=(2,10000), scale=1e-9)
 s4.addPoints(x=pos[0], y=pos[1])
-w4.addDataItem(s4)
+w4.addItem(s4)
 
 
 

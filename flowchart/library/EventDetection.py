@@ -3,7 +3,6 @@
 from ..Node import Node
 import functions
 from common import *
-import pyqtgraph as pg
 
 class Threshold(CtrlNode):
     """Absolute threshold detection filter. Returns indexes where data crosses threshold."""
@@ -66,14 +65,15 @@ class ThresholdEvents(CtrlNode):
     """Detects regions of a waveform that cross a threshold (positive or negative) and returns the time, length, sum, and peak of each event."""
     nodeName = 'ThresholdEvents'
     uiTemplate = [
-        ('threshold', 'spin', {'value': 1e-12, 'step': 1, 'minStep': 0.1, 'dec': True, 'range': [None, None], 'siPrefix': True}),
-        ('adjustTimes', 'check', {'value': True}),
+        ('threshold', 'spin', {'value': 1e-12, 'step': 1, 'minStep': 0.1, 'dec': True, 'range': [None, None], 'siPrefix': True, 'tip': 'Events are detected only if they cross this threshold.'}),
+        ('adjustTimes', 'check', {'value': True, 'tip': 'If False, then event times are reported where the trace crosses threshold. If True, the event time is adjusted to estimate when the trace would have crossed 0.'}),
         #('index', 'combo', {'values':['start','peak'], 'index':0}), 
-        ('minLength', 'intSpin', {'value': 0, 'min': 0, 'max': 1e9}),
+        ('minLength', 'intSpin', {'value': 0, 'min': 0, 'max': 1e9, 'tip': 'Events must contain this many samples to be detected.'}),
         ('minSum', 'spin', {'value': 0, 'step': 1, 'minStep': 0.1, 'dec': True, 'range': [None, None], 'siPrefix': True}),
-        ('minPeak', 'spin', {'value': 0, 'step': 1, 'minStep': 0.1, 'dec': True, 'range': [None, None], 'siPrefix': True}),
-        ('eventLimit', 'intSpin', {'value': 100, 'min': 1, 'max': 1e9}),
-        ('deadTime', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-4, 'range': [0,None], 'siPrefix': True, 'suffix': 's'}),
+        ('minPeak', 'spin', {'value': 0, 'step': 1, 'minStep': 0.1, 'dec': True, 'range': [None, None], 'siPrefix': True, 'tip': 'Events must reach this threshold to be detected.'}),
+        ('eventLimit', 'intSpin', {'value': 100, 'min': 1, 'max': 1e9, 'tip': 'Limits the number of events that may be detected in a single trace. This prevents runaway processes due to over-sensitive detection criteria.'}),
+        ('deadTime', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-4, 'range': [0,None], 'siPrefix': True, 'suffix': 's', 'tip': 'Ignore events that occur too quickly following another event.'}),
+        ('reverseTime', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-4, 'range': [0,None], 'siPrefix': True, 'suffix': 's', 'tip': 'Ignore events that 1) have the opposite sign of the event immediately prior and 2) occur within the given time window after the prior event. This is useful for ignoring rebound signals.'}),
     ]
 
     def __init__(self, name, **opts):
@@ -125,8 +125,12 @@ class ThresholdEvents(CtrlNode):
         mask = np.ones(len(events), dtype=bool)
         last = 0
         dt = s['deadTime']
+        rt = s['reverseTime']
         for i in xrange(1, len(events)):
-            if events[i]['time'] - events[last]['time'] < dt:
+            tdiff = events[i]['time'] - events[last]['time']
+            if tdiff < dt:  ## check dead time
+                mask[i] = False
+            elif tdiff < rt and (events[i]['peak'] * events[last]['peak'] < 0):  ## check reverse time
                 mask[i] = False
             else:
                 last = i
@@ -138,115 +142,6 @@ class ThresholdEvents(CtrlNode):
         return events
 
         
-class EventFilter(CtrlNode):
-    """Selects events from a list based on various criteria"""
-    nodeName = "EventFilter"
-    uiTemplate = [
-        #('minLength', 'intSpin', {'value': 0, 'min': 0, 'max': 1e9}),
-        #('minSum', 'spin', {'value': 0, 'step': 1, 'minStep': 0.1, 'dec': True, 'range': [None, None], 'siPrefix': True}),
-        #('minPeak', 'spin', {'value': 0, 'step': 1, 'minStep': 0.1, 'dec': True, 'range': [None, None], 'siPrefix': True}),
-        #('eventLimit', 'intSpin', {'value': 100, 'min': 1, 'max': 1e9}),
-        #('deadTime', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-4, 'range': [0,None], 'siPrefix': True, 'suffix': 's'}),
-        ('fitAmplitude', 'check', {'value': False}),
-        ('minFitAmp', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-12, 'range': [None,None], 'siPrefix': True, 'hidden': True}),
-        ('maxFitAmp', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-12, 'range': [None,None], 'siPrefix': True, 'hidden': True}),
-        ('fitDecayTau', 'check', {'value': False}),
-        ('minFitDecayTau', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-4, 'range': [None,None], 'siPrefix': True, 'suffix': 's', 'hidden': True}),
-        ('maxFitDecayTau', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-4, 'range': [None,None], 'siPrefix': True, 'suffix': 's', 'hidden': True}),
-        ('fitRiseTau', 'check', {'value': False}),
-        ('minFitRiseTau', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-4, 'range': [None,None], 'siPrefix': True, 'suffix': 's', 'hidden': True}),
-        ('maxFitRiseTau', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-4, 'range': [None,None], 'siPrefix': True, 'suffix': 's', 'hidden': True}),
-        ('fitError', 'check', {'value': False}),
-        ('minFitError', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-12, 'range': [None,None], 'siPrefix': True, 'hidden': True}),
-        ('maxFitError', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-12, 'range': [None,None], 'siPrefix': True, 'hidden': True}),
-        ('fitTime', 'check', {'value': False}),
-        ('minFitTime', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-4, 'range': [None,None], 'siPrefix': True, 'suffix': 's', 'hidden': True}),
-        ('maxFitTime', 'spin', {'value': 0, 'step': 1, 'minStep': 1e-4, 'range': [None,None], 'siPrefix': True, 'suffix': 's', 'hidden': True}),
-        ('region', 'combo', {'values': ['all']}),
-    ]
-    
-    ranges = [
-        ('fitAmplitude', 'minFitAmp', 'maxFitAmp'),
-        ('fitDecayTau', 'minFitDecayTau', 'maxFitDecayTau'),
-        ('fitRiseTau', 'minFitRiseTau', 'maxFitRiseTau'),
-        ('fitError', 'minFitError', 'maxFitError'),
-        ('fitTime', 'minFitTime', 'maxFitTime'),
-    ]
-
-    def __init__(self, name):
-        CtrlNode.__init__(self, name, terminals={
-            'events': {'io': 'in'},
-            'regions': {'io': 'in'},
-            'output': {'io': 'out', 'bypass': 'events'}})
-        
-        for check, spin1, spin2 in self.ranges:
-            self.ctrls[check].toggled.connect(self.checkToggled)
-        #self.updateRegions()
-        
-    def updateRegions(self, regions):
-        regCombo = self.ctrls['region']
-        
-        ### first check length of comboLists and update if they do not match -- avoids index errors in check of individual items below
-        if regCombo.count() != len(regions):
-            regCombo.clear()
-            regCombo.addItems(regions)
-            return
-        
-        ### check individual items in the list
-        test = []
-        for i in range(regCombo.count()):
-            test.append(regCombo.itemText(i) == regions[i])
-        if False not in test:
-            return
-        else:  
-            regCombo.clear()
-            regCombo.addItems(regions)
-            return
-    
-    def updateUi(self):
-        pass
-    
-    
-
-    def checkToggled(self):
-        #s = self.stateGroup.state()
-        for name, a, b in self.ranges:
-            
-            if self.ctrls[name].isChecked():
-                self.showRow(a)
-                self.showRow(b)
-            else:
-                self.hideRow(a)
-                self.hideRow(b)
-            
-
-    def process(self, events, regions=None, display=True):
-        s = self.stateGroup.state()
-        data=events
-        mask = np.ones(len(data), dtype=bool)
-
-        newReg = ['all']
-        if regions is None:
-            regions = {}
-        for r in regions.keys():
-            newReg.append(r.node().name())
-        self.updateRegions(newReg)
-            
-            
-        for b, mn, mx in self.ranges:
-            if s[b]:
-                try:
-                    mask *= data[b] < s[mx]
-                    mask *= data[b] > s[mn]
-                except ValueError:  ## If the data doesn't kave this key, don't fret; just ignore it.
-                    pass
-        #print "  filter 1:", mask.sum()  
-        region = s['region']
-        if region != 'all':
-            mask *= data['region'] == region
-        #print "  filter 2:", mask.sum(), region
-        #print "  filter 3:", len(data[mask])
-        return {'output':data[mask]}
             
             
 

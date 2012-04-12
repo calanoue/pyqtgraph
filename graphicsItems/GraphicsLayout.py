@@ -1,16 +1,18 @@
 from pyqtgraph.Qt import QtGui, QtCore
 import pyqtgraph.functions as fn
-from ViewBox import ViewBox
-from PlotItem import PlotItem
+from GraphicsWidget import GraphicsWidget
 
-class GraphicsLayout(QtGui.QGraphicsWidget):
+__all__ = ['GraphicsLayout']
+class GraphicsLayout(GraphicsWidget):
     """
     Used for laying out GraphicsWidgets in a grid.
     """
 
 
     def __init__(self, parent=None, border=None):
-        QtGui.QGraphicsWidget.__init__(self, parent)
+        GraphicsWidget.__init__(self, parent)
+        if border is True:
+            border = (100,100,100)
         self.border = border
         self.layout = QtGui.QGraphicsGridLayout()
         self.setLayout(self.layout)
@@ -24,14 +26,16 @@ class GraphicsLayout(QtGui.QGraphicsWidget):
         self.currentRow += 1
         self.currentCol = 0
         
-    def nextCol(self, colspan=1):
+    def nextColumn(self, colspan=1):
         """Advance to next column, while returning the current column number 
         (generally only for internal use--called by addItem)"""
         self.currentCol += colspan
         return self.currentCol-colspan
         
+    def nextCol(self, *args, **kargs):
+        return self.nextColumn(*args, **kargs)
+        
     def addPlot(self, row=None, col=None, rowspan=1, colspan=1, **kargs):
-        from PlotItem import PlotItem
         plot = PlotItem(**kargs)
         self.addItem(plot, row, col, rowspan, colspan)
         return plot
@@ -41,7 +45,16 @@ class GraphicsLayout(QtGui.QGraphicsWidget):
         self.addItem(vb, row, col, rowspan, colspan)
         return vb
         
-
+    def addLabel(self, text=' ', row=None, col=None, rowspan=1, colspan=1, **kargs):
+        text = LabelItem(text, **kargs)
+        self.addItem(text, row, col, rowspan, colspan)
+        return text
+        
+    def addLayout(self, row=None, col=None, rowspan=1, colspan=1, **kargs):
+        layout = GraphicsLayout(**kargs)
+        self.addItem(layout, row, col, rowspan, colspan)
+        return layout
+        
     def addItem(self, item, row=None, col=None, rowspan=1, colspan=1):
         if row is None:
             row = self.currentRow
@@ -88,3 +101,9 @@ class GraphicsLayout(QtGui.QGraphicsWidget):
         items = []
         for i in self.items.keys():
             self.removeItem(i)
+
+
+## Must be imported at the end to avoid cyclic-dependency hell:
+from ViewBox import ViewBox
+from PlotItem import PlotItem
+from LabelItem import LabelItem

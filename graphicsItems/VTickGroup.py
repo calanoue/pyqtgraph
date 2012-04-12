@@ -8,6 +8,7 @@ import pyqtgraph.functions as fn
 import weakref
 from UIGraphicsItem import UIGraphicsItem
 
+__all__ = ['VTickGroup']
 class VTickGroup(UIGraphicsItem):
     """
     Draws a set of tick marks which always occupy the same vertical range of the view,
@@ -62,6 +63,9 @@ class VTickGroup(UIGraphicsItem):
                     #pass
         self.rebuildTicks()
         #self.valid = False
+        
+    def dataBounds(self, *args, **kargs):
+        return None  ## item should never affect view autoscaling
             
     #def viewRangeChanged(self):
         ### called when the view is scaled

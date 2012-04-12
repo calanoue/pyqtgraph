@@ -16,21 +16,25 @@ This class is very heavily featured:
   - Control panel with a huge feature set including averaging, decimation,
     display, power spectrum, svg/png export, plot linking, and more.
 """
-
-import os
 #from graphicsItems import *
 from plotConfigTemplate import *
 from pyqtgraph.Qt import QtGui, QtCore, QtSvg
 import pyqtgraph.functions as fn
-from pyqtgraph.FileDialog import FileDialog
+from pyqtgraph.widgets.FileDialog import FileDialog
 import weakref
+#from types import *
 import numpy as np
-from .. PlotCurveItem import PlotCurveItem
-from .. ScatterPlotItem import ScatterPlotItem
+import os
+#from .. PlotCurveItem import PlotCurveItem
+#from .. ScatterPlotItem import ScatterPlotItem
+from .. PlotDataItem import PlotDataItem
 from .. ViewBox import ViewBox
 from .. AxisItem import AxisItem
 from .. LabelItem import LabelItem
+from .. GraphicsWidget import GraphicsWidget
+from .. ButtonItem import ButtonItem
 from pyqtgraph.WidgetGroup import WidgetGroup
+import collections
 
 __all__ = ['PlotItem']
 
@@ -47,7 +51,9 @@ except:
     HAVE_METAARRAY = False
 
 
-class PlotItem(QtGui.QGraphicsWidget):
+
+
+class PlotItem(GraphicsWidget):
     
     sigYRangeChanged = QtCore.Signal(object, object)
     sigXRangeChanged = QtCore.Signal(object, object)
@@ -57,29 +63,34 @@ class PlotItem(QtGui.QGraphicsWidget):
     lastFileDir = None
     managers = {}
     
-    def __init__(self, parent=None, name=None, labels=None, **kargs):
-        QtGui.QGraphicsWidget.__init__(self, parent)
+    def __init__(self, parent=None, name=None, labels=None, title=None, **kargs):
+        """
+        Create a new PlotItem. All arguments are optional.
+        Any extra keyword arguments are passed to PlotItem.plot().
+        
+        Arguments:
+            *title*   - Title to display at the top of the item. Html is allowed.
+            *labels*  - A dictionary specifying the axis labels to display. 
+                        {'left': (args), 'bottom': (args), ...}
+                        The name of each axis and the corresponding arguments are passed to PlotItem.setLabel()
+                        Optionally, PlotItem my also be initialized with the keyword arguments left,
+                        right, top, or bottom to achieve the same effect.
+            *name*    - Registers a name for this view so that others may link to it  
+        """
+        
+        GraphicsWidget.__init__(self, parent)
         
         self.setSizePolicy(QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Expanding)
+        
         ## Set up control buttons
-        
-        self.ctrlBtn = QtGui.QToolButton()
-        self.ctrlBtn.setText('?')
-        self.autoBtn = QtGui.QToolButton()
-        self.autoBtn.setText('A')
-        #self.autoBtn.hide()
-        self.proxies = []
-        for b in [self.ctrlBtn, self.autoBtn]:
-            proxy = QtGui.QGraphicsProxyWidget(self)
-            proxy.setWidget(b)
-            proxy.setAcceptHoverEvents(False)
-            b.setStyleSheet("background-color: #000000; color: #888; font-size: 6pt")
-            self.proxies.append(proxy)
-        #QtCore.QObject.connect(self.ctrlBtn, QtCore.SIGNAL('clicked()'), self.ctrlBtnClicked)
-        self.ctrlBtn.clicked.connect(self.ctrlBtnClicked)
-        #QtCore.QObject.connect(self.autoBtn, QtCore.SIGNAL('clicked()'), self.enableAutoScale)
-        self.autoBtn.clicked.connect(self.enableAutoScale)
-        
+        path = os.path.dirname(__file__)
+        #self.ctrlBtn = ButtonItem(os.path.join(path, 'ctrl.png'), 14, self)
+        #self.ctrlBtn.clicked.connect(self.ctrlBtnClicked)
+        self.autoImageFile = os.path.join(path, 'auto.png')
+        self.lockImageFile = os.path.join(path, 'lock.png')
+        self.autoBtn = ButtonItem(self.autoImageFile, 14, self)
+        self.autoBtn.mode = 'auto'
+        self.autoBtn.clicked.connect(self.autoBtnClicked)
         
         self.layout = QtGui.QGraphicsGridLayout()
         self.layout.setContentsMargins(1,1,1,1)
@@ -87,24 +98,20 @@ class PlotItem(QtGui.QGraphicsWidget):
         self.layout.setHorizontalSpacing(0)
         self.layout.setVerticalSpacing(0)
         
-        self.vb = ViewBox()
-        #QtCore.QObject.connect(self.vb, QtCore.SIGNAL('xRangeChanged'), self.xRangeChanged)
-        self.vb.sigXRangeChanged.connect(self.xRangeChanged)
-        #QtCore.QObject.connect(self.vb, QtCore.SIGNAL('yRangeChanged'), self.yRangeChanged)
-        self.vb.sigYRangeChanged.connect(self.yRangeChanged)
-        #QtCore.QObject.connect(self.vb, QtCore.SIGNAL('rangeChangedManually'), self.enableManualScale)
-        self.vb.sigRangeChangedManually.connect(self.enableManualScale)
-        
-        #QtCore.QObject.connect(self.vb, QtCore.SIGNAL('viewChanged'), self.viewChanged)
-        self.vb.sigRangeChanged.connect(self.viewRangeChanged)
+        self.vb = ViewBox(name=name)
+        self.vb.sigRangeChanged.connect(self.sigRangeChanged)
+        self.vb.sigXRangeChanged.connect(self.sigXRangeChanged)
+        self.vb.sigYRangeChanged.connect(self.sigYRangeChanged)
+        #self.vb.sigRangeChangedManually.connect(self.enableManualScale)
+        #self.vb.sigRangeChanged.connect(self.viewRangeChanged)
         
         self.layout.addItem(self.vb, 2, 1)
         self.alpha = 1.0
         self.autoAlpha = True
         self.spectrumMode = False
-         
-        self.autoScale = [True, True]
-         
+        
+        #self.autoScale = [True, True]
+        
         ## Create and place scale items
         self.scales = {
             'top':    {'item': AxisItem(orientation='top',    linkView=self.vb), 'pos': (1, 1)}, 
@@ -113,25 +120,16 @@ class PlotItem(QtGui.QGraphicsWidget):
             'right':  {'item': AxisItem(orientation='right',  linkView=self.vb), 'pos': (2, 2)}
         }
         for k in self.scales:
-            self.layout.addItem(self.scales[k]['item'], *self.scales[k]['pos'])
-            
-        ## Create and place label items
-        #self.labels = {
-            #'title':  {'item': LabelItem('title', size='11pt'),  'pos': (0, 2), 'text': ''},
-            #'top':    {'item': LabelItem('top'),    'pos': (1, 2), 'text': '', 'units': '', 'unitPrefix': ''},
-            #'bottom': {'item': LabelItem('bottom'), 'pos': (5, 2), 'text': '', 'units': '', 'unitPrefix': ''},
-            #'left':   {'item': LabelItem('left'),   'pos': (3, 0), 'text': '', 'units': '', 'unitPrefix': ''},
-            #'right':  {'item': LabelItem('right'),  'pos': (3, 4), 'text': '', 'units': '', 'unitPrefix': ''}
-        #}
-        #self.labels['left']['item'].setAngle(-90)
-        #self.labels['right']['item'].setAngle(-90)
-        #for k in self.labels:
-            #self.layout.addItem(self.labels[k]['item'], *self.labels[k]['pos'])
+            item = self.scales[k]['item']
+            self.layout.addItem(item, *self.scales[k]['pos'])
+            item.setZValue(-1000)
+            item.setFlag(item.ItemNegativeZStacksBehindParent)
+        
         self.titleLabel = LabelItem('', size='11pt')
         self.layout.addItem(self.titleLabel, 0, 1)
         self.setTitle(None)  ## hide
-
-
+        
+        
         for i in range(4):
             self.layout.setRowPreferredHeight(i, 0)
             self.layout.setRowMinimumHeight(i, 0)
@@ -148,11 +146,16 @@ class PlotItem(QtGui.QGraphicsWidget):
         
 
         ## Wrap a few methods from viewBox
-        for m in ['setXRange', 'setYRange', 'setRange', 'autoRange', 'viewRect', 'setMouseEnabled']:
+        for m in [
+            'setXRange', 'setYRange', 'setXLink', 'setYLink', 
+            'setRange', 'autoRange', 'viewRect', 'setMouseEnabled',
+            'enableAutoRange', 'disableAutoRange', 'setAspectLocked',
+            'register', 'unregister']:
             setattr(self, m, getattr(self.vb, m))
             
         self.items = []
         self.curves = []
+        self.itemMeta = weakref.WeakKeyDictionary()
         self.dataItems = []
         self.paramList = {}
         self.avgCurves = {}
@@ -163,38 +166,67 @@ class PlotItem(QtGui.QGraphicsWidget):
         self.ctrl = c = Ui_Form()
         c.setupUi(w)
         dv = QtGui.QDoubleValidator(self)
+        
+        menuItems = [
+            ('Fourier Transform', c.powerSpectrumGroup),
+            ('Downsample', c.decimateGroup),
+            ('Average', c.averageGroup),
+            ('Alpha', c.alphaGroup),
+            ('Grid', c.gridGroup),
+            ('Points', c.pointsGroup),
+        ]
+        
+        
         self.ctrlMenu = QtGui.QMenu()
-        self.menuAction = QtGui.QWidgetAction(self)
-        self.menuAction.setDefaultWidget(w)
-        self.ctrlMenu.addAction(self.menuAction)
+        
+        self.ctrlMenu.setTitle('Plot Options')
+        self.subMenus = []
+        for name, grp in menuItems:
+            sm = QtGui.QMenu(name)
+            act = QtGui.QWidgetAction(self)
+            act.setDefaultWidget(grp)
+            sm.addAction(act)
+            self.subMenus.append(sm)
+            self.ctrlMenu.addMenu(sm)
+        
+        ## exporting is handled by GraphicsScene now
+        #exportOpts = collections.OrderedDict([
+            #('SVG - Full Plot', self.saveSvgClicked),
+            #('SVG - Curves Only', self.saveSvgCurvesClicked),
+            #('Image', self.saveImgClicked),
+            #('CSV', self.saveCsvClicked),
+        #])
+        
+        #self.vb.menu.setExportMethods(exportOpts)
+        
         
         #if HAVE_WIDGETGROUP:
-        self.stateGroup = WidgetGroup(self.ctrlMenu)
+        self.stateGroup = WidgetGroup()
+        for name, w in menuItems:
+            self.stateGroup.autoAdd(w)
         
         self.fileDialog = None
         
-        self.xLinkPlot = None
-        self.yLinkPlot = None
-        self.linksBlocked = False
+        #self.xLinkPlot = None
+        #self.yLinkPlot = None
+        #self.linksBlocked = False
 
-        
-        #self.ctrlBtn.setFixedWidth(60)
-        self.setAcceptHoverEvents(True)
+        #self.setAcceptHoverEvents(True)
         
         ## Connect control widgets
-        c.xMinText.editingFinished.connect(self.setManualXScale)
-        c.xMaxText.editingFinished.connect(self.setManualXScale)
-        c.yMinText.editingFinished.connect(self.setManualYScale)
-        c.yMaxText.editingFinished.connect(self.setManualYScale)
+        #c.xMinText.editingFinished.connect(self.setManualXScale)
+        #c.xMaxText.editingFinished.connect(self.setManualXScale)
+        #c.yMinText.editingFinished.connect(self.setManualYScale)
+        #c.yMaxText.editingFinished.connect(self.setManualYScale)
         
-        c.xManualRadio.clicked.connect(lambda: self.updateXScale())
-        c.yManualRadio.clicked.connect(lambda: self.updateYScale())
+        #c.xManualRadio.clicked.connect(lambda: self.updateXScale())
+        #c.yManualRadio.clicked.connect(lambda: self.updateYScale())
         
-        c.xAutoRadio.clicked.connect(self.updateXScale)
-        c.yAutoRadio.clicked.connect(self.updateYScale)
+        #c.xAutoRadio.clicked.connect(self.updateXScale)
+        #c.yAutoRadio.clicked.connect(self.updateYScale)
 
-        c.xAutoPercentSpin.valueChanged.connect(self.replot)
-        c.yAutoPercentSpin.valueChanged.connect(self.replot)
+        #c.xAutoPercentSpin.valueChanged.connect(self.replot)
+        #c.yAutoPercentSpin.valueChanged.connect(self.replot)
         
         c.alphaGroup.toggled.connect(self.updateAlpha)
         c.alphaSlider.valueChanged.connect(self.updateAlpha)
@@ -204,13 +236,13 @@ class PlotItem(QtGui.QGraphicsWidget):
         c.gridAlphaSlider.valueChanged.connect(self.updateGrid)
 
         c.powerSpectrumGroup.toggled.connect(self.updateSpectrumMode)
-        c.saveSvgBtn.clicked.connect(self.saveSvgClicked)
-        c.saveSvgCurvesBtn.clicked.connect(self.saveSvgCurvesClicked)
-        c.saveImgBtn.clicked.connect(self.saveImgClicked)
-        c.saveCsvBtn.clicked.connect(self.saveCsvClicked)
+        #c.saveSvgBtn.clicked.connect(self.saveSvgClicked)
+        #c.saveSvgCurvesBtn.clicked.connect(self.saveSvgCurvesClicked)
+        #c.saveImgBtn.clicked.connect(self.saveImgClicked)
+        #c.saveCsvBtn.clicked.connect(self.saveCsvClicked)
         
-        self.ctrl.xLinkCombo.currentIndexChanged.connect(self.xLinkComboChanged)
-        self.ctrl.yLinkCombo.currentIndexChanged.connect(self.yLinkComboChanged)
+        #self.ctrl.xLinkCombo.currentIndexChanged.connect(self.xLinkComboChanged)
+        #self.ctrl.yLinkCombo.currentIndexChanged.connect(self.yLinkComboChanged)
 
         c.downsampleSpin.valueChanged.connect(self.updateDownsampling)
 
@@ -219,36 +251,55 @@ class PlotItem(QtGui.QGraphicsWidget):
         
         self.ctrl.maxTracesCheck.toggled.connect(self.updateDecimation)
         self.ctrl.maxTracesSpin.valueChanged.connect(self.updateDecimation)
-        c.xMouseCheck.toggled.connect(self.mouseCheckChanged)
-        c.yMouseCheck.toggled.connect(self.mouseCheckChanged)
+        #c.xMouseCheck.toggled.connect(self.mouseCheckChanged)
+        #c.yMouseCheck.toggled.connect(self.mouseCheckChanged)
 
-        self.xLinkPlot = None
-        self.yLinkPlot = None
-        self.linksBlocked = False
+        #self.xLinkPlot = None
+        #self.yLinkPlot = None
+        #self.linksBlocked = False
         self.manager = None
         
-        self.showScale('right', False)
-        self.showScale('top', False)
-        self.showScale('left', True)
-        self.showScale('bottom', True)
+        self.hideAxis('right')
+        self.hideAxis('top')
+        self.showAxis('left')
+        self.showAxis('bottom')
         
-        if name is not None:
-            self.registerPlot(name)
-        
-        if labels is not None:
-            for k in labels:
-                if isinstance(labels[k], basestring):
-                    labels[k] = (labels[k],)
-                self.setLabel(k, *labels[k])
+        #if name is not None:
+            #self.registerPlot(name)
+        if labels is None:
+            labels = {}
+        for label in self.scales.keys():
+            if label in kargs:
+                labels[label] = kargs[label]
+                del kargs[label]
+        for k in labels:
+            if isinstance(labels[k], basestring):
+                labels[k] = (labels[k],)
+            self.setLabel(k, *labels[k])
+                
+        if title is not None:
+            self.setTitle(title)
         
         if len(kargs) > 0:
             self.plot(**kargs)
+        
+        #self.enableAutoRange()
+        
+    def implements(self, interface=None):
+        return interface in ['ViewBoxWrapper']
+
+    def getViewBox(self):
+        return self.vb
+    
         
     #def paint(self, *args):
         #prof = debug.Profiler('PlotItem.paint', disabled=True)
         #QtGui.QGraphicsWidget.paint(self, *args)
         #prof.finish()
         
+    ## bad idea. 
+    #def __getattr__(self, attr):  ## wrap ms
+        #return getattr(self.vb, attr)
         
     def close(self):
         #print "delete", self
@@ -260,10 +311,10 @@ class PlotItem(QtGui.QGraphicsWidget):
         self.ctrlMenu.setParent(None)
         self.ctrlMenu = None
         
-        self.ctrlBtn.setParent(None)
-        self.ctrlBtn = None
-        self.autoBtn.setParent(None)
-        self.autoBtn = None
+        #self.ctrlBtn.setParent(None)
+        #self.ctrlBtn = None
+        #self.autoBtn.setParent(None)
+        #self.autoBtn = None
         
         for k in self.scales:
             i = self.scales[k]['item']
@@ -277,56 +328,67 @@ class PlotItem(QtGui.QGraphicsWidget):
         #for i in range(self.layout.count()):
             #self.layout.removeAt(i)
             
-        for p in self.proxies:
-            try:
-                p.setWidget(None)
-            except RuntimeError:
-                break
-            self.scene().removeItem(p)
-        self.proxies = []
+        #for p in self.proxies:
+            #try:
+                #p.setWidget(None)
+            #except RuntimeError:
+                #break
+            #self.scene().removeItem(p)
+        #self.proxies = []
         
-        self.menuAction.releaseWidget(self.menuAction.defaultWidget())
-        self.menuAction.setParent(None)
-        self.menuAction = None
+        #self.menuAction.releaseWidget(self.menuAction.defaultWidget())
+        #self.menuAction.setParent(None)
+        #self.menuAction = None
         
-        if self.manager is not None:
-            self.manager.sigWidgetListChanged.disconnect(self.updatePlotList)
-            self.manager.removeWidget(self.name)
+        #if self.manager is not None:
+            #self.manager.sigWidgetListChanged.disconnect(self.updatePlotList)
+            #self.manager.removeWidget(self.name)
         #else:
             #print "no manager"
 
     def registerPlot(self, name):
-        self.name = name
-        win = str(self.window())
-        #print "register", name, win
-        if win not in PlotItem.managers:
-            PlotItem.managers[win] = PlotWidgetManager()
-        self.manager = PlotItem.managers[win]
-        self.manager.addWidget(self, name)
-        #QtCore.QObject.connect(self.manager, QtCore.SIGNAL('widgetListChanged'), self.updatePlotList)
-        self.manager.sigWidgetListChanged.connect(self.updatePlotList)
-        self.updatePlotList()
+        self.vb.register(name)
+        #self.name = name
+        #win = str(self.window())
+        ##print "register", name, win
+        #if win not in PlotItem.managers:
+            #PlotItem.managers[win] = PlotWidgetManager()
+        #self.manager = PlotItem.managers[win]
+        #self.manager.addWidget(self, name)
+        ##QtCore.QObject.connect(self.manager, QtCore.SIGNAL('widgetListChanged'), self.updatePlotList)
+        #self.manager.sigWidgetListChanged.connect(self.updatePlotList)
+        #self.updatePlotList()
 
-    def updatePlotList(self):
-        """Update the list of all plotWidgets in the "link" combos"""
-        #print "update plot list", self
-        try:
-            for sc in [self.ctrl.xLinkCombo, self.ctrl.yLinkCombo]:
-                current = str(sc.currentText())
-                sc.clear()
-                sc.addItem("")
-                if self.manager is not None:
-                    for w in self.manager.listWidgets():
-                        #print w
-                        if w == self.name:
-                            continue
-                        sc.addItem(w)
-        except:
-            import gc
-            refs= gc.get_referrers(self)
-            print "  error during update of", self
-            print "  Referrers are:", refs
-            raise
+    #def updatePlotList(self):
+        #"""Update the list of all plotWidgets in the "link" combos"""
+        ##print "update plot list", self
+        #try:
+            #for sc in [self.ctrl.xLinkCombo, self.ctrl.yLinkCombo]:
+                #current = unicode(sc.currentText())
+                #sc.blockSignals(True)
+                #try:
+                    #sc.clear()
+                    #sc.addItem("")
+                    #if self.manager is not None:
+                        #for w in self.manager.listWidgets():
+                            ##print w
+                            #if w == self.name:
+                                #continue
+                            #sc.addItem(w)
+                            #if w == current:
+                                #sc.setCurrentIndex(sc.count()-1)
+                #finally:
+                    #sc.blockSignals(False)
+                    #if unicode(sc.currentText()) != current:
+                        #sc.currentItemChanged.emit()
+        #except:
+            #import gc
+            #refs= gc.get_referrers(self)
+            #print "  error during update of", self
+            #print "  Referrers are:", refs
+            #raise
+        
+        
         
     def updateGrid(self, *args):
         g = self.ctrl.gridGroup.isChecked()
@@ -347,84 +409,88 @@ class PlotItem(QtGui.QGraphicsWidget):
 
 
 
-    def viewRangeChanged(self, vb, range):
-        #self.emit(QtCore.SIGNAL('viewChanged'), *args)
-        self.sigRangeChanged.emit(self, range)
 
-    def blockLink(self, b):
-        self.linksBlocked = b
+    #def viewRangeChanged(self, vb, range):
+        ##self.emit(QtCore.SIGNAL('viewChanged'), *args)
+        #self.sigRangeChanged.emit(self, range)
 
-    def xLinkComboChanged(self):
-        self.setXLink(str(self.ctrl.xLinkCombo.currentText()))
+    #def blockLink(self, b):
+        #self.linksBlocked = b
 
-    def yLinkComboChanged(self):
-        self.setYLink(str(self.ctrl.yLinkCombo.currentText()))
+    #def xLinkComboChanged(self):
+        #self.setXLink(str(self.ctrl.xLinkCombo.currentText()))
 
-    def setXLink(self, plot=None):
-        """Link this plot's X axis to another plot (pass either the PlotItem/PlotWidget or the registered name of the plot)"""
-        if isinstance(plot, basestring):
-            if self.manager is None:
-                return
-            if self.xLinkPlot is not None:
-                self.manager.unlinkX(self, self.xLinkPlot)
-            plot = self.manager.getWidget(plot)
-        if not isinstance(plot, PlotItem) and hasattr(plot, 'getPlotItem'):
-            plot = plot.getPlotItem()
-        self.xLinkPlot = plot
-        if plot is not None:
-            self.setManualXScale()
-            self.manager.linkX(self, plot)
+    #def yLinkComboChanged(self):
+        #self.setYLink(str(self.ctrl.yLinkCombo.currentText()))
+
+    #def setXLink(self, plot=None):
+        #"""Link this plot's X axis to another plot (pass either the PlotItem/PlotWidget or the registered name of the plot)"""
+        #if isinstance(plot, basestring):
+            #if self.manager is None:
+                #return
+            #if self.xLinkPlot is not None:
+                #self.manager.unlinkX(self, self.xLinkPlot)
+            #plot = self.manager.getWidget(plot)
+        #if not isinstance(plot, PlotItem) and hasattr(plot, 'getPlotItem'):
+            #plot = plot.getPlotItem()
+        #self.xLinkPlot = plot
+        #if plot is not None:
+            #self.setManualXScale()
+            #self.manager.linkX(self, plot)
+
             
-    def setYLink(self, plot=None):
-        """Link this plot's Y axis to another plot (pass either the PlotItem/PlotWidget or the registered name of the plot)"""
-        if isinstance(plot, basestring):
-            if self.manager is None:
-                return
-            if self.yLinkPlot is not None:
-                self.manager.unlinkY(self, self.yLinkPlot)
-            plot = self.manager.getWidget(plot)
-        if not isinstance(plot, PlotItem) and hasattr(plot, 'getPlotItem'):
-            plot = plot.getPlotItem()
-        self.yLinkPlot = plot
-        if plot is not None:
-            self.setManualYScale()
-            self.manager.linkY(self, plot)
+
+    #def setYLink(self, plot=None):
+        #"""Link this plot's Y axis to another plot (pass either the PlotItem/PlotWidget or the registered name of the plot)"""
+        #if isinstance(plot, basestring):
+            #if self.manager is None:
+                #return
+            #if self.yLinkPlot is not None:
+                #self.manager.unlinkY(self, self.yLinkPlot)
+            #plot = self.manager.getWidget(plot)
+        #if not isinstance(plot, PlotItem) and hasattr(plot, 'getPlotItem'):
+            #plot = plot.getPlotItem()
+        #self.yLinkPlot = plot
+        #if plot is not None:
+            #self.setManualYScale()
+            #self.manager.linkY(self, plot)
         
-    def linkXChanged(self, plot):
-        """Called when a linked plot has changed its X scale"""
-        #print "update from", plot
-        if self.linksBlocked:
-            return
-        pr = plot.vb.viewRect()
-        pg = plot.viewGeometry()
-        if pg is None:
-            #print "   return early"
-            return
-        sg = self.viewGeometry()
-        upp = float(pr.width()) / pg.width()
-        x1 = pr.left() + (sg.x()-pg.x()) * upp
-        x2 = x1 + sg.width() * upp
-        plot.blockLink(True)
-        self.setManualXScale()
-        self.setXRange(x1, x2, padding=0)
-        plot.blockLink(False)
-        self.replot()
+    #def linkXChanged(self, plot):
+        #"""Called when a linked plot has changed its X scale"""
+        ##print "update from", plot
+        #if self.linksBlocked:
+            #return
+        #pr = plot.vb.viewRect()
+        #pg = plot.viewGeometry()
+        #if pg is None:
+            ##print "   return early"
+            #return
+        #sg = self.viewGeometry()
+        #upp = float(pr.width()) / pg.width()
+        #x1 = pr.left() + (sg.x()-pg.x()) * upp
+        #x2 = x1 + sg.width() * upp
+        #plot.blockLink(True)
+        #self.setManualXScale()
+        #self.setXRange(x1, x2, padding=0)
+        #plot.blockLink(False)
+        #self.replot()
         
-    def linkYChanged(self, plot):
-        """Called when a linked plot has changed its Y scale"""
-        if self.linksBlocked:
-            return
-        pr = plot.vb.viewRect()
-        pg = plot.vb.boundingRect()
-        sg = self.vb.boundingRect()
-        upp = float(pr.height()) / pg.height()
-        y1 = pr.bottom() + (sg.y()-pg.y()) * upp
-        y2 = y1 + sg.height() * upp
-        plot.blockLink(True)
-        self.setManualYScale()
-        self.setYRange(y1, y2, padding=0)
-        plot.blockLink(False)
-        self.replot()
+    #def linkYChanged(self, plot):
+        #"""Called when a linked plot has changed its Y scale"""
+        #if self.linksBlocked:
+            #return
+        #pr = plot.vb.viewRect()
+        #pg = plot.vb.boundingRect()
+        #sg = self.vb.boundingRect()
+        #upp = float(pr.height()) / pg.height()
+        #y1 = pr.bottom() + (sg.y()-pg.y()) * upp
+        #y2 = y1 + sg.height() * upp
+        #plot.blockLink(True)
+        #self.setManualYScale()
+        #self.setYRange(y1, y2, padding=0)
+        #plot.blockLink(False)
+        #self.replot()
+
 
     def avgToggled(self, b):
         if b:
@@ -466,7 +532,7 @@ class PlotItem(QtGui.QGraphicsWidget):
             if len(remKeys) < 1:  ## In this case, there would be 1 average plot for each data plot; not useful.
                 return
                 
-        p = curve.meta().copy()
+        p = self.itemMeta.get(curve,{}).copy()
         for k in p:
             if type(k) is tuple:
                 p['.'.join(k)] = p[k]
@@ -481,12 +547,12 @@ class PlotItem(QtGui.QGraphicsWidget):
         
         ### Create a new curve if needed
         if key not in self.avgCurves:
-            plot = PlotCurveItem()
+            plot = PlotDataItem()
             plot.setPen(fn.mkPen([0, 200, 0]))
             plot.setShadowPen(fn.mkPen([0, 0, 0, 100], width=3))
             plot.setAlpha(1.0, False)
             plot.setZValue(100)
-            self.addItem(plot)
+            self.addItem(plot, skipAverage=True)
             self.avgCurves[key] = [0, plot]
         self.avgCurves[key][0] += 1
         (n, plot) = self.avgCurves[key]
@@ -499,119 +565,174 @@ class PlotItem(QtGui.QGraphicsWidget):
         else:
             plot.setData(x, y)
         
-        
-    def mouseCheckChanged(self):
-        state = [self.ctrl.xMouseCheck.isChecked(), self.ctrl.yMouseCheck.isChecked()]
-        self.vb.setMouseEnabled(*state)
-        
-    def xRangeChanged(self, _, range):
-        if any(np.isnan(range)) or any(np.isinf(range)):
-            raise Exception("yRange invalid: %s. Signal came from %s" % (str(range), str(self.sender())))
-        self.ctrl.xMinText.setText('%0.5g' % range[0])
-        self.ctrl.xMaxText.setText('%0.5g' % range[1])
-        
-        ## automatically change unit scale
-        maxVal = max(abs(range[0]), abs(range[1]))
-        (scale, prefix) = fn.siScale(maxVal)
-        #for l in ['top', 'bottom']:
-            #if self.getLabel(l).isVisible():
-                #self.setLabel(l, unitPrefix=prefix)
-                #self.getScale(l).setScale(scale)
-            #else:
-                #self.setLabel(l, unitPrefix='')
-                #self.getScale(l).setScale(1.0)
-        
-        #self.emit(QtCore.SIGNAL('xRangeChanged'), self, range)
-        self.sigXRangeChanged.emit(self, range)
 
-    def yRangeChanged(self, _, range):
-        if any(np.isnan(range)) or any(np.isinf(range)):
-            raise Exception("yRange invalid: %s. Signal came from %s" % (str(range), str(self.sender())))
-        self.ctrl.yMinText.setText('%0.5g' % range[0])
-        self.ctrl.yMaxText.setText('%0.5g' % range[1])
+    #def mouseCheckChanged(self):
+        #state = [self.ctrl.xMouseCheck.isChecked(), self.ctrl.yMouseCheck.isChecked()]
+        #self.vb.setMouseEnabled(*state)
         
-        ## automatically change unit scale
-        maxVal = max(abs(range[0]), abs(range[1]))
-        (scale, prefix) = fn.siScale(maxVal)
-        #for l in ['left', 'right']:
-            #if self.getLabel(l).isVisible():
-                #self.setLabel(l, unitPrefix=prefix)
-                #self.getScale(l).setScale(scale)
-            #else:
-                #self.setLabel(l, unitPrefix='')
-                #self.getScale(l).setScale(1.0)
-        #self.emit(QtCore.SIGNAL('yRangeChanged'), self, range)
-        self.sigYRangeChanged.emit(self, range)
+    #def xRangeChanged(self, _, range):
+        #if any(np.isnan(range)) or any(np.isinf(range)):
+            #raise Exception("yRange invalid: %s. Signal came from %s" % (str(range), str(self.sender())))
+        #self.ctrl.xMinText.setText('%0.5g' % range[0])
+        #self.ctrl.xMaxText.setText('%0.5g' % range[1])
+        
+        ### automatically change unit scale
+        #maxVal = max(abs(range[0]), abs(range[1]))
+        #(scale, prefix) = fn.siScale(maxVal)
+        ##for l in ['top', 'bottom']:
+            ##if self.getLabel(l).isVisible():
+                ##self.setLabel(l, unitPrefix=prefix)
+                ##self.getScale(l).setScale(scale)
+            ##else:
+                ##self.setLabel(l, unitPrefix='')
+                ##self.getScale(l).setScale(1.0)
+        
+        ##self.emit(QtCore.SIGNAL('xRangeChanged'), self, range)
+        #self.sigXRangeChanged.emit(self, range)
 
+    #def yRangeChanged(self, _, range):
+        #if any(np.isnan(range)) or any(np.isinf(range)):
+            #raise Exception("yRange invalid: %s. Signal came from %s" % (str(range), str(self.sender())))
+        #self.ctrl.yMinText.setText('%0.5g' % range[0])
+        #self.ctrl.yMaxText.setText('%0.5g' % range[1])
+        
+        ### automatically change unit scale
+        #maxVal = max(abs(range[0]), abs(range[1]))
+        #(scale, prefix) = fn.siScale(maxVal)
+        ##for l in ['left', 'right']:
+            ##if self.getLabel(l).isVisible():
+                ##self.setLabel(l, unitPrefix=prefix)
+                ##self.getScale(l).setScale(scale)
+            ##else:
+                ##self.setLabel(l, unitPrefix='')
+                ##self.getScale(l).setScale(1.0)
+        ##self.emit(QtCore.SIGNAL('yRangeChanged'), self, range)
+        #self.sigYRangeChanged.emit(self, range)
 
+    def autoBtnClicked(self):
+        if self.autoBtn.mode == 'auto':
+            self.enableAutoRange()
+        else:
+            self.disableAutoRange()
+            
     def enableAutoScale(self):
-        self.ctrl.xAutoRadio.setChecked(True)
-        self.ctrl.yAutoRadio.setChecked(True)
-        self.autoBtn.hide()
-        self.updateXScale()
-        self.updateYScale()
-        self.replot()
+        """
+        Enable auto-scaling. The plot will continuously scale to fit the boundaries of its data.
+        """
+        print "Warning: enableAutoScale is deprecated. Use enableAutoRange(axis, enable) instead."
+        self.vb.enableAutoRange(self.vb.XYAxes)
+        #self.ctrl.xAutoRadio.setChecked(True)
+        #self.ctrl.yAutoRadio.setChecked(True)
+        
+        #self.autoBtn.setImageFile(self.lockImageFile)
+        #self.autoBtn.mode = 'lock'
+        #self.updateXScale()
+        #self.updateYScale()
+        #self.replot()
       
-    def updateXScale(self):
-        """Set plot to autoscale or not depending on state of radio buttons"""
-        if self.ctrl.xManualRadio.isChecked():
-            self.setManualXScale()
-        else:
-            self.setAutoXScale()
-        self.replot()
-        
-    def updateYScale(self, b=False):
-        """Set plot to autoscale or not depending on state of radio buttons"""
-        if self.ctrl.yManualRadio.isChecked():
-            self.setManualYScale()
-        else:
-            self.setAutoYScale()
-        self.replot()
-
-    def enableManualScale(self, v=[True, True]):
-        if v[0]:
-            self.autoScale[0] = False
-            self.ctrl.xManualRadio.setChecked(True)
+    #def updateXScale(self):
+        #"""Set plot to autoscale or not depending on state of radio buttons"""
+        #if self.ctrl.xManualRadio.isChecked():
             #self.setManualXScale()
-        if v[1]:
-            self.autoScale[1] = False
-            self.ctrl.yManualRadio.setChecked(True)
+        #else:
+            #self.setAutoXScale()
+        #self.replot()
+        
+    #def updateYScale(self, b=False):
+        #"""Set plot to autoscale or not depending on state of radio buttons"""
+        #if self.ctrl.yManualRadio.isChecked():
             #self.setManualYScale()
-        self.autoBtn.show()
-        #self.replot()
-        
-    def setManualXScale(self):
-        self.autoScale[0] = False
-        x1 = float(self.ctrl.xMinText.text())
-        x2 = float(self.ctrl.xMaxText.text())
-        self.ctrl.xManualRadio.setChecked(True)
-        self.setXRange(x1, x2, padding=0)
-        self.autoBtn.show()
-        #self.replot()
-        
-    def setManualYScale(self):
-        self.autoScale[1] = False
-        y1 = float(self.ctrl.yMinText.text())
-        y2 = float(self.ctrl.yMaxText.text())
-        self.ctrl.yManualRadio.setChecked(True)
-        self.setYRange(y1, y2, padding=0)
-        self.autoBtn.show()
+        #else:
+            #self.setAutoYScale()
         #self.replot()
 
-    def setAutoXScale(self):
-        self.autoScale[0] = True
-        self.ctrl.xAutoRadio.setChecked(True)
-        #self.replot()
+    #def enableManualScale(self, v=[True, True]):
+        #if v[0]:
+            #self.autoScale[0] = False
+            #self.ctrl.xManualRadio.setChecked(True)
+            ##self.setManualXScale()
+        #if v[1]:
+            #self.autoScale[1] = False
+            #self.ctrl.yManualRadio.setChecked(True)
+            ##self.setManualYScale()
+        ##self.autoBtn.enable()
+        #self.autoBtn.setImageFile(self.autoImageFile)
+        #self.autoBtn.mode = 'auto'
+        ##self.replot()
         
-    def setAutoYScale(self):
-        self.autoScale[1] = True
-        self.ctrl.yAutoRadio.setChecked(True)
-        #self.replot()
+    #def setManualXScale(self):
+        #self.autoScale[0] = False
+        #x1 = float(self.ctrl.xMinText.text())
+        #x2 = float(self.ctrl.xMaxText.text())
+        #self.ctrl.xManualRadio.setChecked(True)
+        #self.setXRange(x1, x2, padding=0)
+        #self.autoBtn.show()
+        ##self.replot()
+        
+    #def setManualYScale(self):
+        #self.autoScale[1] = False
+        #y1 = float(self.ctrl.yMinText.text())
+        #y2 = float(self.ctrl.yMaxText.text())
+        #self.ctrl.yManualRadio.setChecked(True)
+        #self.setYRange(y1, y2, padding=0)
+        #self.autoBtn.show()
+        ##self.replot()
 
-    def addItem(self, item, *args):
+    #def setAutoXScale(self):
+        #self.autoScale[0] = True
+        #self.ctrl.xAutoRadio.setChecked(True)
+        ##self.replot()
+        
+    #def setAutoYScale(self):
+        #self.autoScale[1] = True
+        #self.ctrl.yAutoRadio.setChecked(True)
+        ##self.replot()
+
+    def addItem(self, item, *args, **kargs):
         self.items.append(item)
-        self.vb.addItem(item, *args)
+        vbargs = {}
+        if 'ignoreBounds' in kargs:
+            vbargs['ignoreBounds'] = kargs['ignoreBounds']
+        self.vb.addItem(item, *args, **vbargs)
+        if hasattr(item, 'implements') and item.implements('plotData'):
+            self.dataItems.append(item)
+            #self.plotChanged()
+            
+            params = kargs.get('params', {})
+            self.itemMeta[item] = params
+            #item.setMeta(params)
+            self.curves.append(item)
+            #self.addItem(c)
+            
+        if isinstance(item, PlotDataItem):
+            ## configure curve for this plot
+            (alpha, auto) = self.alphaState()
+            item.setAlpha(alpha, auto)
+            item.setFftMode(self.ctrl.powerSpectrumGroup.isChecked())
+            item.setDownsampling(self.downsampleMode())
+            item.setPointMode(self.pointMode())
+            
+            ## Hide older plots if needed
+            self.updateDecimation()
+            
+            ## Add to average if needed
+            self.updateParamList()
+            if self.ctrl.averageGroup.isChecked() and 'skipAverage' not in kargs:
+                self.addAvgCurve(item)
+                
+            #c.connect(c, QtCore.SIGNAL('plotChanged'), self.plotChanged)
+            #item.sigPlotChanged.connect(self.plotChanged)
+            #self.plotChanged()
+
+    def addDataItem(self, item, *args):
+        print "PlotItem.addDataItem is deprecated. Use addItem instead."
+        self.addItem(item, *args)
         
+    def addCurve(self, c, params=None):
+        print "PlotItem.addCurve is deprecated. Use addItem instead."
+        self.addItem(item, params)
+
+
     def removeItem(self, item):
         if not item in self.items:
             return
@@ -626,7 +747,7 @@ class PlotItem(QtGui.QGraphicsWidget):
             self.updateDecimation()
             self.updateParamList()
             #item.connect(item, QtCore.SIGNAL('plotChanged'), self.plotChanged)
-            item.sigPlotChanged.connect(self.plotChanged)
+            #item.sigPlotChanged.connect(self.plotChanged)
 
     def clear(self):
         for i in self.items[:]:
@@ -639,108 +760,101 @@ class PlotItem(QtGui.QGraphicsWidget):
         self.avgCurves = {}
         
     
-    def plot(self, data=None, data2=None, x=None, y=None, clear=False, params=None, pen=None, 
-        symbol=None, decimate = None):
-        """Add a new plot curve. Data may be specified a few ways:
-        plot(yVals)   # x vals will be integers
-        plot(xVals, yVals)
-        plot(y=yVals, x=xVals)
+    def plot(self, *args, **kargs):
         """
-        if y is not None:
-            data = y
-        if data2 is not None:
-            x = data
-            data = data2
-        if decimate is not None and decimate > 1:
-            data = data[::decimate]
-            if x is not None:
-                x = x[::decimate]
-          #  print 'plot with decimate = %d' % (decimate)
+        Add and return a new plot.
+        See PlotDataItem.__init__ for data arguments
+        
+        Extra allowed arguments are:
+            clear    - clear all plots before displaying new data
+            params   - meta-parameters to associate with this data
+        """
+        
+        
+        
+        #if y is not None:
+            #data = y
+        #if data2 is not None:
+            #x = data
+            #data = data2
+        #if decimate is not None and decimate > 1:
+            #data = data[::decimate]
+            #if x is not None:
+                #x = x[::decimate]
+          ##  print 'plot with decimate = %d' % (decimate)
+        clear = kargs.get('clear', False)
+        params = kargs.get('params', None)
+          
         if clear:
             self.clear()
+            
+        item = PlotDataItem(*args, **kargs)
+            
         if params is None:
             params = {}
-        if HAVE_METAARRAY and isinstance(data, MetaArray):
-            curve = self._plotMetaArray(data, x=x)
-        elif isinstance(data, np.ndarray):
-            curve = self._plotArray(data, x=x)
-        elif isinstance(data, list):
-            if x is not None:
-                x = np.array(x)
-            curve = self._plotArray(np.array(data), x=x)
-        elif data is None:
-            curve = PlotCurveItem()
-        else:
-            raise Exception('Not sure how to plot object of type %s' % type(data))
+        #if HAVE_METAARRAY and isinstance(data, MetaArray):
+            #curve = self._plotMetaArray(data, x=x, **kargs)
+        #elif isinstance(data, np.ndarray):
+            #curve = self._plotArray(data, x=x, **kargs)
+        #elif isinstance(data, list):
+            #if x is not None:
+                #x = np.array(x)
+            #curve = self._plotArray(np.array(data), x=x, **kargs)
+        #elif data is None:
+            #curve = PlotCurveItem(**kargs)
+        #else:
+            #raise Exception('Not sure how to plot object of type %s' % type(data))
             
         #print data, curve
-        self.addCurve(curve, params)
-        if pen is not None:
-            curve.setPen(fn.mkPen(pen))
+        self.addItem(item, params=params)
+        #if pen is not None:
+            #curve.setPen(fn.mkPen(pen))
         
-        return curve
+        return item
 
     def scatterPlot(self, *args, **kargs):
-        sp = ScatterPlotItem(*args, **kargs)
-        self.addDataItem(sp)
-        return sp
+        print "PlotItem.scatterPlot is deprecated. Use PlotItem.plot instead."
+        return self.plot(*args, **kargs)
+        #sp = ScatterPlotItem(*args, **kargs)
+        #self.addItem(sp)
+        #return sp
 
-    def addDataItem(self, item):
-        self.addItem(item)
-        self.dataItems.append(item)
-        self.plotChanged()
     
-    def addCurve(self, c, params=None):
-        if params is None:
-            params = {}
-        c.setMeta(params)
-        self.curves.append(c)
-        self.addItem(c)
-        
-        ## configure curve for this plot
-        (alpha, auto) = self.alphaState()
-        c.setAlpha(alpha, auto)
-        c.setSpectrumMode(self.ctrl.powerSpectrumGroup.isChecked())
-        c.setDownsampling(self.downsampleMode())
-        c.setPointMode(self.pointMode())
-        
-        ## Hide older plots if needed
-        self.updateDecimation()
-        
-        ## Add to average if needed
-        self.updateParamList()
-        if self.ctrl.averageGroup.isChecked():
-            self.addAvgCurve(c)
-            
-        #c.connect(c, QtCore.SIGNAL('plotChanged'), self.plotChanged)
-        c.sigPlotChanged.connect(self.plotChanged)
-        self.plotChanged()
 
-    def plotChanged(self, curve=None):
+    #def plotChanged(self, curve=None):
         ## Recompute auto range if needed
-        for ax in [0, 1]:
-            if self.autoScale[ax]:
-                percentScale = [self.ctrl.xAutoPercentSpin.value(), self.ctrl.yAutoPercentSpin.value()][ax] * 0.01
-                mn = None
-                mx = None
-                for c in self.curves + [c[1] for c in self.avgCurves.values()] + self.dataItems:
-                    if not c.isVisible():
-                        continue
-                    cmn, cmx = c.getRange(ax, percentScale)
-                    if mn is None or cmn < mn:
-                        mn = cmn
-                    if mx is None or cmx > mx:
-                        mx = cmx
-                if mn is None or mx is None or any(np.isnan([mn, mx])) or any(np.isinf([mn, mx])):
-                    continue
-                if mn == mx:
-                    mn -= 1
-                    mx += 1
-                self.setRange(ax, mn, mx)
-                #print "Auto range:", ax, mn, mx
+        #args = {}
+        #for ax in [0, 1]:
+            #print "range", ax
+            #if self.autoScale[ax]:
+                #percentScale = [self.ctrl.xAutoPercentSpin.value(), self.ctrl.yAutoPercentSpin.value()][ax] * 0.01
+                #mn = None
+                #mx = None
+                #for c in self.curves + [c[1] for c in self.avgCurves.values()] + self.dataItems:
+                    #if not c.isVisible():
+                        #continue
+                    #cmn, cmx = c.getRange(ax, percentScale)
+                    ##print "   ", c, cmn, cmx
+                    #if mn is None or cmn < mn:
+                        #mn = cmn
+                    #if mx is None or cmx > mx:
+                        #mx = cmx
+                #if mn is None or mx is None or any(np.isnan([mn, mx])) or any(np.isinf([mn, mx])):
+                    #continue
+                #if mn == mx:
+                    #mn -= 1
+                    #mx += 1
+                #if ax == 0:
+                    #args['xRange'] = [mn, mx]
+                #else:
+                    #args['yRange'] = [mn, mx]
+                    
+        #if len(args) > 0:
+            ##print args
+            #self.setRange(**args)
                 
     def replot(self):
-        self.plotChanged()
+        #self.plotChanged()
         self.update()
 
     def updateParamList(self):
@@ -750,7 +864,7 @@ class PlotItem(QtGui.QGraphicsWidget):
         #print "paramList:", self.paramList
         for c in self.curves:
             #print "  curve:", c
-            for p in c.meta().keys():
+            for p in self.itemMeta.get(c, {}).keys():
                 #print "    param:", p
                 if type(p) is tuple:
                     p = '.'.join(p)
@@ -973,6 +1087,7 @@ class PlotItem(QtGui.QGraphicsWidget):
             #raise Exception("State save/restore requires WidgetGroup class.")
         state = self.stateGroup.state()
         state['paramList'] = self.paramList.copy()
+        state['view'] = self.vb.getState()
         #print "\nSAVE %s:\n" % str(self.name), state
         #print "Saving state. averageGroup.isChecked(): %s  state: %s" % (str(self.ctrl.averageGroup.isChecked()), str(state['averageGroup']))
         return state
@@ -990,9 +1105,20 @@ class PlotItem(QtGui.QGraphicsWidget):
         self.updateDecimation()
         
         self.stateGroup.setState(state)
-        self.updateXScale()
-        self.updateYScale()
+        #self.updateXScale()
+        #self.updateYScale()
         self.updateParamList()
+        
+        if 'view' not in state:
+            r = [[float(state['xMinText']), float(state['xMaxText'])], [float(state['yMinText']), float(state['yMaxText'])]]
+            state['view'] = {
+                'autoRange': [state['xAutoRadio'], state['yAutoRadio']],
+                'linkedViews': [state['xLinkCombo'], state['yLinkCombo']],
+                'targetRange': r,
+                'viewRange': r,
+            }
+        self.vb.setState(state['view'])
+        
         
         #print "\nRESTORE %s:\n" % str(self.name), state
         #print "Restoring state. averageGroup.isChecked(): %s  state: %s" % (str(self.ctrl.averageGroup.isChecked()), str(state['averageGroup']))
@@ -1008,8 +1134,8 @@ class PlotItem(QtGui.QGraphicsWidget):
         if b is None:
             b = self.ctrl.powerSpectrumGroup.isChecked()
         for c in self.curves:
-            c.setSpectrumMode(b)
-        self.enableAutoScale()
+            c.setFftMode(b)
+        self.enableAutoRange()
         self.recomputeAverages()
             
         
@@ -1045,7 +1171,7 @@ class PlotItem(QtGui.QGraphicsWidget):
                 curves[i].show()
             else:
                 if self.ctrl.forgetTracesCheck.isChecked():
-                    curves[i].free()
+                    curves[i].clear()
                     self.removeItem(curves[i])
                 else:
                     curves[i].hide()
@@ -1084,21 +1210,27 @@ class PlotItem(QtGui.QGraphicsWidget):
         ev.accept()
 
     def resizeEvent(self, ev):
-        if self.ctrlBtn is None:  ## already closed down
+        if self.autoBtn is None:  ## already closed down
             return
-        self.ctrlBtn.move(0, self.size().height() - self.ctrlBtn.size().height())
-        self.autoBtn.move(self.ctrlBtn.width(), self.size().height() - self.autoBtn.size().height())
+        btnRect = self.mapRectFromItem(self.autoBtn, self.autoBtn.boundingRect())
+        y = self.size().height() - btnRect.height()
+        self.autoBtn.setPos(0, y)
         
-    def hoverMoveEvent(self, ev):
-        self.mousePos = ev.pos()
-        self.mouseScreenPos = ev.screenPos()
+    #def hoverMoveEvent(self, ev):
+        #self.mousePos = ev.pos()
+        #self.mouseScreenPos = ev.screenPos()
         
         
-    def ctrlBtnClicked(self):
-        self.ctrlMenu.popup(self.mouseScreenPos)
-        
-    #def contextMenuEvent(self, ev):  ## only after button release!
+    #def ctrlBtnClicked(self):
         #self.ctrlMenu.popup(self.mouseScreenPos)
+        
+    def getMenu(self):
+        return self.ctrlMenu
+    
+    def getContextMenus(self, event):
+        ## called when another item is displaying its context menu; we get to add extras to the end of the menu.
+        return self.ctrlMenu
+        
 
     def getLabel(self, key):
         pass
@@ -1111,14 +1243,31 @@ class PlotItem(QtGui.QGraphicsWidget):
         self._checkScaleKey(key)
         return self.scales[key]['item']
         
-    def setLabel(self, key, text=None, units=None, unitPrefix=None, **args):
-        """Key is one of: 'left', 'right', 'top', 'bottom'"""
-        self.getScale(key).setLabel(text=text, units=units, unitPrefix=unitPrefix, **args)
+    def setLabel(self, axis, text=None, units=None, unitPrefix=None, **args):
+        """
+        Set the label for an axis. Basic HTML formatting is allowed.
+        Arguments:
+            axis  - must be one of 'left', 'bottom', 'right', or 'top'
+            text  - text to display along the axis. HTML allowed.
+            units - units to display after the title. If units are given, 
+                    then an SI prefix will be automatically appended
+                    and the axis values will be scaled accordingly.
+                    (ie, use 'V' instead of 'mV'; 'm' will be added automatically)
+        """
+        self.getScale(axis).setLabel(text=text, units=units, **args)
         
-    def showLabel(self, key, show=True):
-        self.getScale(key).showLabel(show)
+    def showLabel(self, axis, show=True):
+        """
+        Show or hide one of the plot's axis labels (the axis itself will be unaffected).
+        axis must be one of 'left', 'bottom', 'right', or 'top'
+        """
+        self.getScale(axis).showLabel(show)
 
     def setTitle(self, title=None, **args):
+        """
+        Set the title of the plot. Basic HTML formatting is allowed.
+        If title is None, then the title will be hidden.
+        """
         if title is None:
             self.titleLabel.setVisible(False)
             self.layout.setRowFixedHeight(0, 0)
@@ -1129,27 +1278,43 @@ class PlotItem(QtGui.QGraphicsWidget):
             self.titleLabel.setVisible(True)
             self.titleLabel.setText(title, **args)
 
-    def showScale(self, key, show=True):
-        s = self.getScale(key)
-        p = self.scales[key]['pos']
+    def showAxis(self, axis, show=True):
+        """
+        Show or hide one of the plot's axes.
+        axis must be one of 'left', 'bottom', 'right', or 'top'
+        """
+        s = self.getScale(axis)
+        p = self.scales[axis]['pos']
         if show:
             s.show()
         else:
             s.hide()
-
-    def _plotArray(self, arr, x=None):
+            
+    def hideAxis(self, axis):
+        self.showAxis(axis, False)
+            
+    def showScale(self, *args, **kargs):
+        print "Deprecated. use showAxis() instead"
+        return self.showAxis(*args, **kargs)
+            
+    def hideButtons(self):
+        #self.ctrlBtn.hide()
+        self.autoBtn.hide()
+        
+            
+    def _plotArray(self, arr, x=None, **kargs):
         if arr.ndim != 1:
             raise Exception("Array must be 1D to plot (shape is %s)" % arr.shape)
         if x is None:
             x = np.arange(arr.shape[0])
         if x.ndim != 1:
             raise Exception("X array must be 1D to plot (shape is %s)" % x.shape)
-        c = PlotCurveItem(arr, x=x)
+        c = PlotCurveItem(arr, x=x, **kargs)
         return c
             
         
         
-    def _plotMetaArray(self, arr, x=None, autoLabel=True):
+    def _plotMetaArray(self, arr, x=None, autoLabel=True, **kargs):
         inf = arr.infoCopy()
         if arr.ndim != 1:
             raise Exception('can only automatically plot 1 dimensional arrays.')
@@ -1162,7 +1327,7 @@ class PlotItem(QtGui.QGraphicsWidget):
                 xv = np.arange(arr.shape[0])
             else:
                 xv = x
-        c = PlotCurveItem()
+        c = PlotCurveItem(**kargs)
         c.setData(x=xv, y=arr.view(np.ndarray))
         
         if autoLabel:
@@ -1176,75 +1341,81 @@ class PlotItem(QtGui.QGraphicsWidget):
             
         return c
 
-    def saveSvgClicked(self):
-        self.writeSvg()
+    #def saveSvgClicked(self):
+        #self.writeSvg()
         
-    def saveSvgCurvesClicked(self):
-        self.writeSvgCurves()
+    #def saveSvgCurvesClicked(self):
+        #self.writeSvgCurves()
         
-    def saveImgClicked(self):
-        self.writeImage()
+    #def saveImgClicked(self):
+        #self.writeImage()
             
-    def saveCsvClicked(self):
-        self.writeCsv()
+    #def saveCsvClicked(self):
+        #self.writeCsv()
       
+    def setExportMode(self, export, opts):
+        if export:
+            self.autoBtn.hide()
+        else:
+            self.autoBtn.show()
+    
 
-class PlotWidgetManager(QtCore.QObject):
+#class PlotWidgetManager(QtCore.QObject):
     
-    sigWidgetListChanged = QtCore.Signal(object)
+    #sigWidgetListChanged = QtCore.Signal(object)
     
-    """Used for managing communication between PlotWidgets"""
-    def __init__(self):
-        QtCore.QObject.__init__(self)
-        self.widgets = weakref.WeakValueDictionary() # Don't keep PlotWidgets around just because they are listed here
+    #"""Used for managing communication between PlotWidgets"""
+    #def __init__(self):
+        #QtCore.QObject.__init__(self)
+        #self.widgets = weakref.WeakValueDictionary() # Don't keep PlotWidgets around just because they are listed here
     
-    def addWidget(self, w, name):
-        self.widgets[name] = w
-        #self.emit(QtCore.SIGNAL('widgetListChanged'), self.widgets.keys())
-        self.sigWidgetListChanged.emit(self.widgets.keys())
+    #def addWidget(self, w, name):
+        #self.widgets[name] = w
+        ##self.emit(QtCore.SIGNAL('widgetListChanged'), self.widgets.keys())
+        #self.sigWidgetListChanged.emit(self.widgets.keys())
         
-    def removeWidget(self, name):
-        if name in self.widgets:
-            del self.widgets[name]
-            #self.emit(QtCore.SIGNAL('widgetListChanged'), self.widgets.keys())
-            self.sigWidgetListChanged.emit(self.widgets.keys())
-        else:
-            print "plot %s not managed" % name
+    #def removeWidget(self, name):
+        #if name in self.widgets:
+            #del self.widgets[name]
+            ##self.emit(QtCore.SIGNAL('widgetListChanged'), self.widgets.keys())
+            #self.sigWidgetListChanged.emit(self.widgets.keys())
+        #else:
+            #print "plot %s not managed" % name
         
         
-    def listWidgets(self):
-        return self.widgets.keys()
+    #def listWidgets(self):
+        #return self.widgets.keys()
         
-    def getWidget(self, name):
-        if name not in self.widgets:
-            return None
-        else:
-            return self.widgets[name]
+    #def getWidget(self, name):
+        #if name not in self.widgets:
+            #return None
+        #else:
+            #return self.widgets[name]
             
-    def linkX(self, p1, p2):
-        #QtCore.QObject.connect(p1, QtCore.SIGNAL('xRangeChanged'), p2.linkXChanged)
-        p1.sigXRangeChanged.connect(p2.linkXChanged)
-        #QtCore.QObject.connect(p2, QtCore.SIGNAL('xRangeChanged'), p1.linkXChanged)
-        p2.sigXRangeChanged.connect(p1.linkXChanged)
-        p1.linkXChanged(p2)
-        #p2.setManualXScale()
+    #def linkX(self, p1, p2):
+        ##QtCore.QObject.connect(p1, QtCore.SIGNAL('xRangeChanged'), p2.linkXChanged)
+        #p1.sigXRangeChanged.connect(p2.linkXChanged)
+        ##QtCore.QObject.connect(p2, QtCore.SIGNAL('xRangeChanged'), p1.linkXChanged)
+        #p2.sigXRangeChanged.connect(p1.linkXChanged)
+        #p1.linkXChanged(p2)
+        ##p2.setManualXScale()
 
-    def unlinkX(self, p1, p2):
-        #QtCore.QObject.disconnect(p1, QtCore.SIGNAL('xRangeChanged'), p2.linkXChanged)
-        p1.sigXRangeChanged.disconnect(p2.linkXChanged)
-        #QtCore.QObject.disconnect(p2, QtCore.SIGNAL('xRangeChanged'), p1.linkXChanged)
-        p2.sigXRangeChanged.disconnect(p1.linkXChanged)
+    #def unlinkX(self, p1, p2):
+        ##QtCore.QObject.disconnect(p1, QtCore.SIGNAL('xRangeChanged'), p2.linkXChanged)
+        #p1.sigXRangeChanged.disconnect(p2.linkXChanged)
+        ##QtCore.QObject.disconnect(p2, QtCore.SIGNAL('xRangeChanged'), p1.linkXChanged)
+        #p2.sigXRangeChanged.disconnect(p1.linkXChanged)
         
-    def linkY(self, p1, p2):
-        #QtCore.QObject.connect(p1, QtCore.SIGNAL('yRangeChanged'), p2.linkYChanged)
-        p1.sigYRangeChanged.connect(p2.linkYChanged)
-        #QtCore.QObject.connect(p2, QtCore.SIGNAL('yRangeChanged'), p1.linkYChanged)
-        p2.sigYRangeChanged.connect(p1.linkYChanged)
-        p1.linkYChanged(p2)
-        #p2.setManualYScale()
+    #def linkY(self, p1, p2):
+        ##QtCore.QObject.connect(p1, QtCore.SIGNAL('yRangeChanged'), p2.linkYChanged)
+        #p1.sigYRangeChanged.connect(p2.linkYChanged)
+        ##QtCore.QObject.connect(p2, QtCore.SIGNAL('yRangeChanged'), p1.linkYChanged)
+        #p2.sigYRangeChanged.connect(p1.linkYChanged)
+        #p1.linkYChanged(p2)
+        ##p2.setManualYScale()
 
-    def unlinkY(self, p1, p2):
-        #QtCore.QObject.disconnect(p1, QtCore.SIGNAL('yRangeChanged'), p2.linkYChanged)
-        p1.sigYRangeChanged.disconnect(p2.linkYChanged)
-        #QtCore.QObject.disconnect(p2, QtCore.SIGNAL('yRangeChanged'), p1.linkYChanged)
-        p2.sigYRangeChanged.disconnect(p1.linkYChanged)
+    #def unlinkY(self, p1, p2):
+        ##QtCore.QObject.disconnect(p1, QtCore.SIGNAL('yRangeChanged'), p2.linkYChanged)
+        #p1.sigYRangeChanged.disconnect(p2.linkYChanged)
+        ##QtCore.QObject.disconnect(p2, QtCore.SIGNAL('yRangeChanged'), p1.linkYChanged)
+        #p2.sigYRangeChanged.disconnect(p1.linkYChanged)

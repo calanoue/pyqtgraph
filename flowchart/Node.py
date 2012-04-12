@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 from pyqtgraph.Qt import QtCore, QtGui
 #from PySide import QtCore, QtGui
+from pyqtgraph.graphicsItems.GraphicsObject import GraphicsObject
+import pyqtgraph.functions as fn
 from Terminal import *
-from advancedTypes import OrderedDict
-from debug import *
+from collections import OrderedDict
+from pyqtgraph.debug import *
 import numpy as np
 #from pyqtgraph.ObjectWorkaround import QObjectWorkaround
 from eq import *
@@ -15,13 +17,13 @@ def strDict(d):
 
 class Node(QtCore.QObject):
     
-    sigOutputChanged = QtCore.Signal(object)
+    sigOutputChanged = QtCore.Signal(object)   # self
     sigClosed = QtCore.Signal(object)
     sigRenamed = QtCore.Signal(object, object)
     sigTerminalRenamed = QtCore.Signal(object, object)
 
     
-    def __init__(self, name, terminals=None):
+    def __init__(self, name, terminals=None, allowAddInput=False, allowAddOutput=False, allowRemove=True):
         QtCore.QObject.__init__(self)
         self._name = name
         self._bypass = False
@@ -30,6 +32,10 @@ class Node(QtCore.QObject):
         self.terminals = OrderedDict()
         self._inputs = {}
         self._outputs = {}
+        self._allowAddInput = allowAddInput   ## flags to allow the user to add/remove terminals
+        self._allowAddOutput = allowAddOutput
+        self._allowRemove = allowRemove
+        
         self.exception = None
         if terminals is None:
             return
@@ -63,6 +69,7 @@ class Node(QtCore.QObject):
             term = self.terminals[name]
         
         #print "remove", name
+        #term.disconnectAll()
         term.close()
         del self.terminals[name]
         if name in self._inputs:
@@ -319,9 +326,11 @@ class Node(QtCore.QObject):
             t.disconnectAll()
     
 
-class NodeGraphicsItem(QtGui.QGraphicsItem):
+#class NodeGraphicsItem(QtGui.QGraphicsItem):
+class NodeGraphicsItem(GraphicsObject):
     def __init__(self, node):
-        QtGui.QGraphicsItem.__init__(self)
+        #QtGui.QGraphicsItem.__init__(self)
+        GraphicsObject.__init__(self)
         #QObjectWorkaround.__init__(self)
         
         #self.shadow = QtGui.QGraphicsDropShadowEffect()
@@ -329,29 +338,38 @@ class NodeGraphicsItem(QtGui.QGraphicsItem):
         #self.shadow.setBlurRadius(10)
         #self.setGraphicsEffect(self.shadow)
         
-        self.pen = QtGui.QPen(QtGui.QColor(0,0,0))
-        self.brush = QtGui.QBrush(QtGui.QColor(200, 200, 200))
+        self.pen = fn.mkPen(0,0,0)
+        self.selectPen = fn.mkPen(200,200,200,width=2)
+        self.brush = fn.mkBrush(200, 200, 200, 150)
+        self.hoverBrush = fn.mkBrush(200, 200, 200, 200)
+        self.selectBrush = fn.mkBrush(200, 200, 255, 200)
+        self.hovered = False
+        
         self.node = node
         flags = self.ItemIsMovable | self.ItemIsSelectable | self.ItemIsFocusable |self.ItemSendsGeometryChanges
+        #flags =  self.ItemIsFocusable |self.ItemSendsGeometryChanges
+
         self.setFlags(flags)
-        
-        bounds = self.boundingRect()
+        self.bounds = QtCore.QRectF(0, 0, 100, 100)
         self.nameItem = QtGui.QGraphicsTextItem(self.node.name(), self)
-        self.nameItem.moveBy(bounds.width()/2. - self.nameItem.boundingRect().width()/2., 0)
+        self.nameItem.setDefaultTextColor(QtGui.QColor(50, 50, 50))
+        self.nameItem.moveBy(self.bounds.width()/2. - self.nameItem.boundingRect().width()/2., 0)
         self.nameItem.setTextInteractionFlags(QtCore.Qt.TextEditorInteraction)
-        
-        
-        self.buildMenu() ## build self.menu and self.terminalMenu, which are both QMenu
         self.updateTerminals()
-        
-        self.pen = QtGui.QPen(QtGui.QColor(0,0,0))
+        #self.setZValue(10)
 
         self.nameItem.focusOutEvent = self.labelFocusOut
         self.nameItem.keyPressEvent = self.labelKeyPress
         
+        self.menu = None
+        self.buildMenu()
         
+        #self.node.sigTerminalRenamed.connect(self.updateActionMenu)
         
-        self.node.sigTerminalRenamed.connect(self.updateActionMenu)
+    #def setZValue(self, z):
+        #for t, item in self.terminals.itervalues():
+            #item.setZValue(z+1)
+        #GraphicsObject.setZValue(self, z)
         
     def labelFocusOut(self, ev):
         QtGui.QGraphicsTextItem.focusOutEvent(self.nameItem, ev)
@@ -367,6 +385,10 @@ class NodeGraphicsItem(QtGui.QGraphicsItem):
         newName = str(self.nameItem.toPlainText())
         if newName != self.node.name():
             self.node.rename(newName)
+            
+        ### re-center the label
+        bounds = self.boundingRect()
+        self.nameItem.setPos(bounds.width()/2. - self.nameItem.boundingRect().width()/2., 0)
 
     def setPen(self, pen):
         self.pen = pen
@@ -378,7 +400,7 @@ class NodeGraphicsItem(QtGui.QGraphicsItem):
         
         
     def updateTerminals(self):
-        bounds = self.boundingRect()
+        bounds = self.bounds
         self.terminals = {}
         inp = self.node.inputs()
         dy = bounds.height() / (len(inp)+1)
@@ -386,7 +408,8 @@ class NodeGraphicsItem(QtGui.QGraphicsItem):
         for i, t in inp.iteritems():
             item = t.graphicsItem()
             item.setParentItem(self)
-            br = self.boundingRect()
+            #item.setZValue(self.zValue()+1)
+            br = self.bounds
             item.setAnchor(0, y)
             self.terminals[i] = (t, item)
             y += dy
@@ -397,46 +420,84 @@ class NodeGraphicsItem(QtGui.QGraphicsItem):
         for i, t in out.iteritems():
             item = t.graphicsItem()
             item.setParentItem(self)
-            br = self.boundingRect()
+            item.setZValue(self.zValue())
+            br = self.bounds
             item.setAnchor(bounds.width(), y)
             self.terminals[i] = (t, item)
             y += dy
         
-        self.updateActionMenu()
+        #self.buildMenu()
         
         
     def boundingRect(self):
-        return QtCore.QRectF(0, 0, 100, 100)
+        return self.bounds.adjusted(-5, -5, 5, 5)
         
     def paint(self, p, *args):
-        bounds = self.boundingRect()
+        
         p.setPen(self.pen)
         if self.isSelected():
-            p.setBrush(QtGui.QBrush(QtGui.QColor(200, 200, 255)))
+            p.setPen(self.selectPen)
+            p.setBrush(self.selectBrush)
         else:
-            p.setBrush(QtGui.QBrush(QtGui.QColor(200, 200, 200)))
-        p.drawRect(bounds)
+            p.setPen(self.pen)
+            if self.hovered:
+                p.setBrush(self.hoverBrush)
+            else:
+                p.setBrush(self.brush)
+                
+        p.drawRect(self.bounds)
+
         
-    #def mouseMoveEvent(self, ev):
-        #QtGui.QGraphicsItem.mouseMoveEvent(self, ev)
-
     def mousePressEvent(self, ev):
-        sel = self.isSelected()
-        ret = QtGui.QGraphicsItem.mousePressEvent(self, ev)
-        if not sel and self.isSelected():
-            #self.setBrush(QtGui.QBrush(QtGui.QColor(200, 200, 255)))
-            #self.emit(QtCore.SIGNAL('selected'))
-            self.update()
-        return ret
+        ev.ignore()
 
+
+    def mouseClickEvent(self, ev):
+        #print "Node.mouseClickEvent called."
+        if int(ev.button()) == int(QtCore.Qt.LeftButton):
+            ev.accept()
+            #print "    ev.button: left"
+            sel = self.isSelected()
+            #ret = QtGui.QGraphicsItem.mousePressEvent(self, ev)
+            self.setSelected(True)
+            if not sel and self.isSelected():
+                #self.setBrush(QtGui.QBrush(QtGui.QColor(200, 200, 255)))
+                #self.emit(QtCore.SIGNAL('selected'))
+                #self.scene().selectionChanged.emit() ## for some reason this doesn't seem to be happening automatically
+                self.update()
+            #return ret
+        
+        elif int(ev.button()) == int(QtCore.Qt.RightButton):
+            #print "    ev.button: right"
+            ev.accept()
+            #pos = ev.screenPos()
+            self.raiseContextMenu(ev)
+            #self.menu.popup(QtCore.QPoint(pos.x(), pos.y()))
+            
+    def mouseDragEvent(self, ev):
+        #print "Node.mouseDrag"
+        if ev.button() == QtCore.Qt.LeftButton:
+            ev.accept()
+            self.setPos(self.pos()+self.mapToParent(ev.pos())-self.mapToParent(ev.lastPos()))
+        
+    def hoverEvent(self, ev):
+        if not ev.isExit() and ev.acceptClicks(QtCore.Qt.LeftButton):
+            ev.acceptDrags(QtCore.Qt.LeftButton)
+            self.hovered = True
+        else:
+            self.hovered = False
+        self.update()
+            
     #def mouseReleaseEvent(self, ev):
         #ret = QtGui.QGraphicsItem.mouseReleaseEvent(self, ev)
         #return ret
 
     def keyPressEvent(self, ev):
-        if ev.key() == QtCore.Qt.Key_Delete:
-            self.node.close()
+        if ev.key() == QtCore.Qt.Key_Delete or ev.key() == QtCore.Qt.Key_Backspace:
             ev.accept()
+            if not self.node._allowRemove:
+                return
+            self.node.close()
         else:
             ev.ignore()
 
@@ -447,47 +508,54 @@ class NodeGraphicsItem(QtGui.QGraphicsItem):
         return QtGui.QGraphicsItem.itemChange(self, change, val)
             
 
-    def contextMenuEvent(self, ev):
-        ev.accept()
-        self.menu.popup(ev.screenPos())
+    #def contextMenuEvent(self, ev):
+        #ev.accept()
+        #self.menu.popup(ev.screenPos())
+        
+    def getMenu(self):
+        return self.menu
+    
+
+    def getContextMenus(self, event):
+        return [self.menu]
+    
+    def raiseContextMenu(self, ev):
+        menu = self.scene().addParentContextMenus(self, self.getMenu(), ev)
+        pos = ev.screenPos()
+        menu.popup(QtCore.QPoint(pos.x(), pos.y()))
         
     def buildMenu(self):
         self.menu = QtGui.QMenu()
-        self.menu.addAction("Add input")
-        self.menu.addAction("Add output")
-        self.menu.addSeparator()
-        self.menu.addAction("Remove node")
-        self.terminalMenu = QtGui.QMenu("Remove terminal")
-        for t in self.node.terminals:
-            self.terminalMenu.addAction(t)
-        self.menu.addMenu(self.terminalMenu)
-        self.menu.triggered.connect(self.menuTriggered)
+        self.menu.setTitle("Node")
+        a = self.menu.addAction("Add input", self.node.addInput)
+        if not self.node._allowAddInput:
+            a.setEnabled(False)
+        a = self.menu.addAction("Add output", self.node.addOutput)
+        if not self.node._allowAddOutput:
+            a.setEnabled(False)
+        a = self.menu.addAction("Remove node", self.node.close)
+        if not self.node._allowRemove:
+            a.setEnabled(False)
         
-    def menuTriggered(self, action):
-        #print "node.menuTriggered called. action:", action
-        act = str(action.text())
-        if act == "Add input":
-            self.node.addInput()
-            #for t in self.node.terminals:
-                #if t not in [str(a.text()) for a in self.terminalMenu.actions()]:
-                    #self.terminalMenu.addAction(t)
-            self.updateActionMenu()
-        elif act == "Add output":
-            self.node.addOutput()
-            #for t in self.node.terminals:
-                #if t not in [str(a.text()) for a in self.terminalMenu.actions()]:
-                    #self.terminalMenu.addAction(t)
-            self.updateActionMenu()
-        elif act == "Remove node":
-            self.node.close()
-        else:
-            self.node.removeTerminal(act)
-            self.terminalMenu.removeAction(action)
+    #def menuTriggered(self, action):
+        ##print "node.menuTriggered called. action:", action
+        #act = str(action.text())
+        #if act == "Add input":
+            #self.node.addInput()
+            #self.updateActionMenu()
+        #elif act == "Add output":
+            #self.node.addOutput()
+            #self.updateActionMenu()
+        #elif act == "Remove node":
+            #self.node.close()
+        #else: ## only other option is to remove a terminal
+            #self.node.removeTerminal(act)
+            #self.terminalMenu.removeAction(action)
 
-    def updateActionMenu(self):
-        for t in self.node.terminals:
-            if t not in [str(a.text()) for a in self.terminalMenu.actions()]:
-                self.terminalMenu.addAction(t)
-        for a in self.terminalMenu.actions():
-            if str(a.text()) not in self.node.terminals:
-                self.terminalMenu.removeAction(a)
+    #def updateActionMenu(self):
+        #for t in self.node.terminals:
+            #if t not in [str(a.text()) for a in self.terminalMenu.actions()]:
+                #self.terminalMenu.addAction(t)
+        #for a in self.terminalMenu.actions():
+            #if str(a.text()) not in self.node.terminals:
+                #self.terminalMenu.removeAction(a)

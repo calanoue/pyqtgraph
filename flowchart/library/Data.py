@@ -3,8 +3,11 @@ from ..Node import Node
 from pyqtgraph.Qt import QtGui, QtCore
 import numpy as np
 from common import *
-from pyqtgraph import graphicsItems, Transform, Point
-from pyqtgraph import TreeWidget
+from pyqtgraph.Transform import Transform
+from pyqtgraph.Point import Point
+from pyqtgraph.widgets.TreeWidget import TreeWidget
+from pyqtgraph.graphicsItems.LinearRegionItem import LinearRegionItem
+
 import functions
 
 try:
@@ -146,7 +149,7 @@ class RegionSelectNode(CtrlNode):
                     #print "  set rgn:", c, region
                     #item.setXVals(events)
                 else:
-                    item = graphicsItems.LinearRegionItem(plot, vals=region)
+                    item = LinearRegionItem(values=region)
                     self.items[c] = item
                     #item.connect(item, QtCore.SIGNAL('regionChanged'), self.rgnChanged)
                     item.sigRegionChanged.connect(self.rgnChanged)
@@ -183,16 +186,19 @@ class EvalNode(Node):
     nodeName = 'PythonEval'
     
     def __init__(self, name):
-        Node.__init__(self, name, terminals = {
-            'input': {'io': 'in', 'renamable': True},
-            'output': {'io': 'out', 'renamable': True},
-        })
+        Node.__init__(self, name, 
+            terminals = {
+                'input': {'io': 'in', 'renamable': True},
+                'output': {'io': 'out', 'renamable': True},
+            },
+            allowAddInput=True, allowAddOutput=True)
         
         self.ui = QtGui.QWidget()
         self.layout = QtGui.QGridLayout()
         self.addInBtn = QtGui.QPushButton('+Input')
         self.addOutBtn = QtGui.QPushButton('+Output')
         self.text = QtGui.QTextEdit()
+        self.text.setTabStopWidth(30)
         self.layout.addWidget(self.addInBtn, 0, 0)
         self.layout.addWidget(self.addOutBtn, 0, 1)
         self.layout.addWidget(self.text, 1, 0, 1, 2)
@@ -263,7 +269,7 @@ class ColumnJoinNode(Node):
         self.layout = QtGui.QGridLayout()
         self.ui.setLayout(self.layout)
         
-        self.tree = TreeWidget.TreeWidget()
+        self.tree = TreeWidget()
         self.addInBtn = QtGui.QPushButton('+ Input')
         self.remInBtn = QtGui.QPushButton('- Input')
         

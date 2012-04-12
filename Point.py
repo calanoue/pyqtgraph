@@ -46,7 +46,7 @@ class Point(QtCore.QPointF):
         elif i == 1:
             return self.y()
         else:
-            raise IndexError("Point has no index %d" % i)
+            raise IndexError("Point has no index %s" % str(i))
         
     def __setitem__(self, i, x):
         if i == 0:
@@ -54,7 +54,7 @@ class Point(QtCore.QPointF):
         elif i == 1:
             return self.setY(x)
         else:
-            raise IndexError("Point has no index %d" % i)
+            raise IndexError("Point has no index %s" % str(i))
         
     def __radd__(self, a):
         return self._math_('__radd__', a)
@@ -101,6 +101,10 @@ class Point(QtCore.QPointF):
         """Returns the vector length of this Point."""
         return (self[0]**2 + self[1]**2) ** 0.5
     
+    def norm(self):
+        """Returns a vector in the same direction with unit length."""
+        return self / self.length()
+    
     def angle(self, a):
         """Returns the angle in degrees between this vector and the vector a."""
         n1 = self.length()
@@ -140,3 +144,6 @@ class Point(QtCore.QPointF):
         
     def copy(self):
         return Point(self)
+        
+    def toQPoint(self):
+        return QtCore.QPoint(*self)

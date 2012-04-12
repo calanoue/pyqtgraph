@@ -1,8 +1,9 @@
 from pyqtgraph.Qt import QtCore, QtGui
 from Parameter import Parameter, registerParameterType
 from ParameterItem import ParameterItem
-from pyqtgraph.SpinBox import SpinBox
-from pyqtgraph.ColorButton import ColorButton
+from pyqtgraph.widgets.SpinBox import SpinBox
+from pyqtgraph.widgets.ColorButton import ColorButton
+import pyqtgraph as pg
 import os, collections
 
 class WidgetParameterItem(ParameterItem):
@@ -131,8 +132,8 @@ class WidgetParameterItem(ParameterItem):
                 self.focusNext(forward=False)
                 return True ## don't let anyone else see this event
             
-        elif ev.type() == ev.FocusOut:
-            self.hideEditor()
+        #elif ev.type() == ev.FocusOut:
+            #self.hideEditor()
         return False
         
     def setFocus(self):
@@ -262,6 +263,14 @@ class EventProxy(QtCore.QObject):
 
 class SimpleParameter(Parameter):
     itemClass = WidgetParameterItem
+    
+    def __init__(self, *args, **kargs):
+        Parameter.__init__(self, *args, **kargs)
+        if self.opts['type'] == 'color':
+            self.value = self.colorValue
+    
+    def colorValue(self):
+        return pg.mkColor(Parameter.value(self))
     
 registerParameterType('int', SimpleParameter, override=True)
 registerParameterType('float', SimpleParameter, override=True)
@@ -396,7 +405,7 @@ class ListParameterItem(WidgetParameterItem):
             #return vals[key]
         #else:
             #return key
-        print key, self.forward
+        #print key, self.forward
         return self.forward[key]
             
     def setValue(self, val):
@@ -471,7 +480,7 @@ class ListParameter(Parameter):
         
         Parameter.setLimits(self, limits)
         #print self.name(), self.value(), limits
-        if self.value() not in self.reverse:
+        if self.value() not in self.reverse and len(self.reverse) > 0:
             self.setValue(self.reverse.keys()[0])
             
 

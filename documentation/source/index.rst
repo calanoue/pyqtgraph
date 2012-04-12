@@ -3,8 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to pyqtgraph's documentation!
-=====================================
+Welcome to the documentation for pyqtgraph 1.8
+==============================================
 
 Contents:
 
@@ -12,29 +12,16 @@ Contents:
     :maxdepth: 2
 
     introduction
+    mouse_interaction
     how_to_use
     plotting
     images
+    style
     region_of_interest
     graphicswindow
     parametertree
-    graphicsItems/index
-        viewbox
-        plotcurveitem
-        scatterplotitem
-        plotitem
-        imageitem
-        linearregion
-        infiniteline
-        arrow
-        curvepoint
-        grid
-        gradientlegend
-    widgets/index
-        dockarea
-        spinbox
-        gradientwidget
-        flowchart
+    internals
+    apireference
     
 
 Indices and tables

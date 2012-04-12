@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 from pyqtgraph.Qt import QtCore, QtGui
-from pyqtgraph.SpinBox import SpinBox
+from pyqtgraph.widgets.SpinBox import SpinBox
 #from pyqtgraph.SignalProxy import SignalProxy
 from pyqtgraph.WidgetGroup import WidgetGroup
 #from ColorMapper import ColorMapper
 from ..Node import Node
 import numpy as np
-from pyqtgraph.ColorButton import ColorButton
+from pyqtgraph.widgets.ColorButton import ColorButton
 try:
     import metaarray
     HAVE_METAARRAY = True
@@ -64,7 +64,7 @@ def generateUi(opts):
         else:
             raise Exception("Unknown widget type '%s'" % str(t))
         if 'tip' in o:
-            w.setTooltip(o['tip'])
+            w.setToolTip(o['tip'])
         w.setObjectName(k)
         l.addRow(k, w)
         if o.get('hidden', False):
