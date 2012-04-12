@@ -17,6 +17,7 @@ This class is very heavily featured:
     display, power spectrum, svg/png export, plot linking, and more.
 """
 
+import os
 #from graphicsItems import *
 from plotConfigTemplate import *
 from pyqtgraph.Qt import QtGui, QtCore, QtSvg

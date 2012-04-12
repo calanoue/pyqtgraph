@@ -20,14 +20,17 @@ class ImageItem(QtGui.QGraphicsObject):
     ## performance gains from this are marginal, and it's rather unreliable.
     useWeave = False
     
-    def __init__(self, image=None, copy=True, parent=None, border=None, mode=None, *args):
-        #QObjectWorkaround.__init__(self)
+    def __init__(self, image=None, copy=True, parent=None, **kwargs):
         QtGui.QGraphicsObject.__init__(self)
-        #self.pixmapItem = QtGui.QGraphicsPixmapItem(self)
+        self.reset(**kwargs)
+
+        if image is not None:
+            self.updateImage(image, copy, autoRange=True)
+
+    def reset(self, border = None, mode = None):
         self.qimage = QtGui.QImage()
         self.pixmap = None
         self.paintMode = mode
-        #self.useWeave = True
         self.blackLevel = None
         self.whiteLevel = None
         self.alpha = 1.0
@@ -37,14 +40,6 @@ class ImageItem(QtGui.QGraphicsObject):
         if border is not None:
             border = fn.mkPen(border)
         self.border = border
-        
-        #QtGui.QGraphicsPixmapItem.__init__(self, parent, *args)
-        #self.pixmapItem = QtGui.QGraphicsPixmapItem(self)
-        if image is not None:
-            self.updateImage(image, copy, autoRange=True)
-        #self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
-        
-        #self.item = QtGui.QGraphicsPixmapItem(parent=self)
 
     def setCompositionMode(self, mode):
         self.paintMode = mode
