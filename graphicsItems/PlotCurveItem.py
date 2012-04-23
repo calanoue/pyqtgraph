@@ -30,8 +30,7 @@ class PlotCurveItem(GraphicsObject):
         self.exportOpts = False
         self.antialias = False
         
-        if y is not None:
-            self.updateData(y, x)
+        self.updateData(x, y)
             
         ## this is disastrous for performance.
         #self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
