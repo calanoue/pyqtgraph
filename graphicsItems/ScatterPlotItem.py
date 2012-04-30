@@ -559,6 +559,9 @@ class ScatterPlotItem(GraphicsObject):
 class SpotPixmap(object):
     """
     Stores graphics data for SpotItem.
+
+    It is an anonymous SpotItem which can be duplicated and reused for all
+    spots.
     """
     _path = None
     _pixmap = None
@@ -670,11 +673,18 @@ class SpotPixmap(object):
             path.lineTo(-0.01, -0.01)
             path.closeSubpath()
         else:
-            raise Exception("Unknown spot symbol '%s' (type=%s)" % (str(symbol), str(type(symbol))))
+            raise Exception("Unknown spot symbol '%s' (type=%s)" %
+                            (str(symbol), str(type(symbol))))
         self._path = path
         self._setPixmap()
 
 class SpotItem(GraphicsObject):
+    """
+    Individual spot a ScatterPlotItem consists of.
+
+    Graphics configuration is done in SpotPixmap to allow for various caching
+    options.
+    """
     #sigClicked = QtCore.Signal(object)
 
     def __init__(self, spotPixmap, data=None, index=None):
@@ -695,7 +705,7 @@ class SpotItem(GraphicsObject):
         else:
             self.scale(size, size)
 
-    # for compatibility
+    # for compatibility, forwarded to SpotPixmap
     @property
     def pen(self):
         return self.spotPixmap.pen
