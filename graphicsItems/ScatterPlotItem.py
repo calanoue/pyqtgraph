@@ -619,8 +619,10 @@ class SpotPixmap(object):
             symbol = 'o'    ## circle by default
         elif isinstance(symbol, int):  ## allow symbols specified by integer for easy iteration
             symbol = ['o', 's', 't', 'd', '+'][symbol]
-        self._symbol = symbol
-        self._setPath(self._symbol)
+        # create a new path too if the symbol changed
+        if self._symbol != symbol:
+            self._symbol = symbol
+            self._setPath(self._symbol)
 
     def paint(self, painter, *opts):
         painter.setPen(self.pen)
@@ -676,6 +678,7 @@ class SpotPixmap(object):
             raise Exception("Unknown spot symbol '%s' (type=%s)" %
                             (str(symbol), str(type(symbol))))
         self._path = path
+        # recreate the pixmap if the path changed
         self._setPixmap()
 
 class SpotItem(GraphicsObject):
