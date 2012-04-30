@@ -449,20 +449,21 @@ class ScatterPlotItem(GraphicsObject):
         if not self.opts['identical']:
             return None
         if self._spotPixmap is None:
-            self._spotPixmap = SpotItem.makePixmap(size=self.opts['size'],
-                                                   pen=self.opts['pen'],
-                                                   brush=self.opts['brush'],
-                                                   symbol=self.opts['symbol'])
+            self._spotPixmap = SpotPixmap(self.opts['pxMode'], self.opts['size'],
+                                          self.opts['pen'], self.opts['brush'],
+                                          self.opts['symbol'])
         return self._spotPixmap
 
     def mkSpot(self, pos, size, pxMode, brush, pen, data, symbol=None, index=None):
         ## Make and return a SpotItem (or PixmapSpotItem if in pxMode)
         brush = fn.mkBrush(brush)
         pen = fn.mkPen(pen)
-        pixmap = None
+        spotPixmap = None
         if pxMode:
-            pixmap = self.spotPixmap()  ## returns None if not using identical mode
-        item = SpotItem(size, pxMode, brush, pen, data, symbol=symbol, pixmap=pixmap, index=index)
+            spotPixmap = self.spotPixmap()  ## returns None if not using identical mode
+        if spotPixmap is None:
+            spotPixmap = SpotPixmap(pxMode, size, pen, brush, symbol)
+        item = SpotItem(spotPixmap, data, index=index)
         item.setParentItem(self)
         item.setPos(pos)
         return item
@@ -555,60 +556,17 @@ class ScatterPlotItem(GraphicsObject):
         else:
             ev.ignore()
 
-def makePath(symbol):
-    path = QtGui.QPainterPath()
-    if symbol == 'o':
-        path.addEllipse(QtCore.QRectF(-0.5, -0.5, 1, 1))
-    elif symbol == 's':
-        path.addRect(QtCore.QRectF(-0.5, -0.5, 1, 1))
-    elif symbol == 't' or symbol == '^':
-        path.moveTo(-0.5, -0.5)
-        path.lineTo(0, 0.5)
-        path.lineTo(0.5, -0.5)
-        path.closeSubpath()
-    elif symbol == 'd':
-        path.moveTo(0., -0.5)
-        path.lineTo(-0.4, 0.)
-        path.lineTo(0, 0.5)
-        path.lineTo(0.4, 0)
-        path.closeSubpath()
-    elif symbol == '+':
-        path.moveTo(-0.5, -0.01)
-        path.lineTo(-0.5, 0.01)
-        path.lineTo(-0.01, 0.01)
-        path.lineTo(-0.01, 0.5)
-        path.lineTo(0.01, 0.5)
-        path.lineTo(0.01, 0.01)
-        path.lineTo(0.5, 0.01)
-        path.lineTo(0.5, -0.01)
-        path.lineTo(0.01, -0.01)
-        path.lineTo(0.01, -0.5)
-        path.lineTo(-0.01, -0.5)
-        path.lineTo(-0.01, -0.01)
-        path.closeSubpath()
-    else:
-        raise Exception("Unknown spot symbol '%s' (type=%s)" % (str(symbol), str(type(symbol))))
-    return path
-
-def makePixmap(size, pen, brush, symbol):
-    spotImage = QtGui.QImage(size+2, size+2, QtGui.QImage.Format_ARGB32_Premultiplied)
-    spotImage.fill(0)
-    p = QtGui.QPainter(spotImage)
-    p.setRenderHint(p.Antialiasing)
-    p.translate(size*0.5+1, size*0.5+1)
-    p.scale(size, size)
-    paintPath(p, pen, brush, makePath(symbol))
-    p.end()
-    return QtGui.QPixmap(spotImage)
-
-def paintPath(painter, pen, brush, path):
-    painter.setPen(pen)
-    painter.setBrush(brush)
-    painter.drawPath(path)
-
 class SpotPixmap(object):
+    """
+    Stores graphics data for SpotItem.
+    """
     _path = None
     _pixmap = None
+    _pxMode = None
+    _size = None
+    _pen = None
+    _brush = None
+    _symbol = None
 
     @property
     def path(self):
@@ -618,74 +576,162 @@ class SpotPixmap(object):
     def pixmap(self):
         return self._pixmap
 
-    def __init__(self, size, pen, brush, symbol=None):
-        self._path = makePath(symbol)
-        self._pixmap = self._getPixmap(size, pen, brush)
+    @property
+    def pxMode(self):
+        return self._pxMode
 
-    def _getPixmap(size, pen, brush):
-        spotImage = QtGui.QImage(size+2, size+2, QtGui.QImage.Format_ARGB32_Premultiplied)
-        spotImage.fill(0)
-        p = QtGui.QPainter(spotImage)
-        p.setRenderHint(p.Antialiasing)
-        p.translate(size*0.5+1, size*0.5+1)
-        p.scale(size, size)
-        paintPath(p, pen, brush, self.path)
-        p.end()
-        return QtGui.QPixmap(spotImage)
+    @property
+    def size(self):
+        return self._size
 
-class SpotItem(GraphicsObject):
-    #sigClicked = QtCore.Signal(object)
-    
-    def __init__(self, size, pxMode, brush, pen, data=None, symbol=None, pixmap=None, index=None, path=None):
-        GraphicsObject.__init__(self)
+    @property
+    def pen(self):
+        return self._pen
 
+    @pen.setter
+    def pen(self, pen):
+        self._pen = fn.mkPen(pen)
+
+    @property
+    def brush(self):
+        return self._brush
+
+    @brush.setter
+    def brush(self, brush):
+        self._brush = fn.mkBrush(brush)
+
+    def __init__(self, pxMode, size, pen, brush, symbol):
+        self._pxMode = pxMode
+        self._size = size
+        self.pen = pen
+        self.brush = brush
+        self._setSymbol(symbol)
+
+    def _setSymbol(self, symbol):
         try:
             symbol = int(symbol)
         except: 
             pass
-        
         if symbol is None:
             symbol = 'o'    ## circle by default
         elif isinstance(symbol, int):  ## allow symbols specified by integer for easy iteration
             symbol = ['o', 's', 't', 'd', '+'][symbol]
-            
-        ####print 'SpotItem symbol: ', symbol
-        self.pxMode = pxMode
+        self._symbol = symbol
+        self._setPath(self._symbol)
+
+    def paint(self, painter, *opts):
+        painter.setPen(self.pen)
+        painter.setBrush(self.brush)
+        painter.drawPath(self.path)
+
+    def _setPixmap(self):
+        if not self.pxMode:
+            return
+        spotImage = QtGui.QImage(self.size+2, self.size+2,
+                                 QtGui.QImage.Format_ARGB32_Premultiplied)
+        spotImage.fill(0)
+        p = QtGui.QPainter(spotImage)
+        p.setRenderHint(p.Antialiasing)
+        p.translate(self.size*0.5+1, self.size*0.5+1)
+        p.scale(self.size, self.size)
+        self.paint(p)
+        p.end()
+        self._pixmap = QtGui.QPixmap(spotImage)
+
+    def _setPath(self, symbol):
+        path = QtGui.QPainterPath()
+        if symbol == 'o':
+            path.addEllipse(QtCore.QRectF(-0.5, -0.5, 1, 1))
+        elif symbol == 's':
+            path.addRect(QtCore.QRectF(-0.5, -0.5, 1, 1))
+        elif symbol == 't' or symbol == '^':
+            path.moveTo(-0.5, -0.5)
+            path.lineTo(0, 0.5)
+            path.lineTo(0.5, -0.5)
+            path.closeSubpath()
+        elif symbol == 'd':
+            path.moveTo(0., -0.5)
+            path.lineTo(-0.4, 0.)
+            path.lineTo(0, 0.5)
+            path.lineTo(0.4, 0)
+            path.closeSubpath()
+        elif symbol == '+':
+            path.moveTo(-0.5, -0.01)
+            path.lineTo(-0.5, 0.01)
+            path.lineTo(-0.01, 0.01)
+            path.lineTo(-0.01, 0.5)
+            path.lineTo(0.01, 0.5)
+            path.lineTo(0.01, 0.01)
+            path.lineTo(0.5, 0.01)
+            path.lineTo(0.5, -0.01)
+            path.lineTo(0.01, -0.01)
+            path.lineTo(0.01, -0.5)
+            path.lineTo(-0.01, -0.5)
+            path.lineTo(-0.01, -0.01)
+            path.closeSubpath()
+        else:
+            raise Exception("Unknown spot symbol '%s' (type=%s)" % (str(symbol), str(type(symbol))))
+        self._path = path
+        self._setPixmap()
+
+class SpotItem(GraphicsObject):
+    #sigClicked = QtCore.Signal(object)
+
+    def __init__(self, spotPixmap, data=None, index=None):
+        GraphicsObject.__init__(self)
+
+        assert isinstance(spotPixmap, SpotPixmap)
+
+        self.spotPixmap = spotPixmap
         self.data = data
-        self.pen = pen
-        self.brush = brush
-        self.size = size
         self.index = index
-        self.symbol = symbol
-        self.path = path
-        if self.path is None:
-            self.path = makePath(symbol)
         
-        if pxMode:
-            ## pre-render an image of the spot and display this rather than redrawing every time.
-            if pixmap is None:
-                pixmap = self.makePixmap(size, pen, brush, symbol)
-            self.pixmap = pixmap ## image is already provided (probably shared with other spots)
+        # SpotPixmap stores all drawing-related data
+        size = self.spotPixmap.size
+        if self.spotPixmap.pxMode:
             self.setFlags(self.flags() | self.ItemIgnoresTransformations | self.ItemHasNoContents)
-            self.pi = QtGui.QGraphicsPixmapItem(self.pixmap, self)
+            self.pi = QtGui.QGraphicsPixmapItem(self.spotPixmap.pixmap, self)
             self.pi.setPos(-0.5*size, -0.5*size)
         else:
             self.scale(size, size)
 
+    # for compatibility
+    @property
+    def pen(self):
+        return self.spotPixmap.pen
+
+    @property
+    def brush(self):
+        return self.spotPixmap.brush
+
+    @property
+    def size(self):
+        return self.spotPixmap.size
+
+    @property
+    def symbol(self):
+        return self.spotPixmap.symbol
+
+    @property
+    def path(self):
+        return self.spotPixmap.path
+
+    @brush.setter
     def setBrush(self, brush):
-        self.brush = fn.mkBrush(brush)
+        self.spotPixmap.setBrush(brush)
         self.update()
         
+    @pen.setter
     def setPen(self, pen):
-        self.pen = fn.mkPen(pen)
+        self.spotPixmap.setPen(pen)
         self.update()
         
     def boundingRect(self):
-        return self.path.boundingRect()
+        return self.spotPixmap.path.boundingRect()
         
     def shape(self):
-        return self.path
+        return self.spotPixmap.path
         
     def paint(self, p, *opts):
-        paintPath(p, self.pen, self.brush, self.path)
+        self.spotPixmap.paint(p, *opts)
         
