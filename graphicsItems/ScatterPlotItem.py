@@ -6,6 +6,8 @@ import numpy as np
 import scipy.stats
 
 __all__ = ['ScatterPlotItem', 'SpotItem']
+
+
 class ScatterPlotItem(GraphicsObject):
     """
     Displays a set of x/y points. Instances of this class are created
@@ -372,7 +374,13 @@ class ScatterPlotItem(GraphicsObject):
         self.sigPlotChanged.emit(self)
     
     
-    def generateSpots(self):
+    def generateSpots(self, clear=True):
+        if clear:
+            for spot in self.spots:
+                self.scene().removeItem(spot)
+            self.spots = []
+        
+        
         xmn = ymn = xmx = ymx = None
         
         ## apply defaults
@@ -571,6 +579,32 @@ class SpotPixmap(object):
     _brush = None
     _symbol = None
 
+    @classmethod
+    def symbols(cls, symbol):
+        """Build all symbol paths, lazy init."""
+        if not hasattr(cls, '_symbols') or not isinstance(cls._symbols, dict):
+            symbols = { name: QtGui.QPainterPath()
+                                for name in ['o', 's', 't', 'd', '+'] }
+            symbols['o'].addEllipse(QtCore.QRectF(-0.5, -0.5, 1, 1))
+            symbols['s'].addRect(QtCore.QRectF(-0.5, -0.5, 1, 1))
+            coords = {
+                't': [(-0.5, -0.5), (0, 0.5), (0.5, -0.5)],
+                'd': [(0., -0.5), (-0.4, 0.), (0, 0.5), (0.4, 0)],
+                '+': [(-0.5, -0.05), (-0.5, 0.05), (-0.05, 0.05), (-0.05, 0.5),
+                      (0.05, 0.5), (0.05, 0.05), (0.5, 0.05), (0.5, -0.05),
+                      (0.05, -0.05), (0.05, -0.5), (-0.05, -0.5), (-0.05, -0.05)],
+                }
+            for k, c in coords.iteritems():
+                symbols[k].moveTo(*c[0])
+                for x,y in c[1:]:
+                    symbols[k].lineTo(x, y)
+                    symbols[k].closeSubpath()
+            cls._symbols = symbols
+        if symbol not in cls._symbols:
+            symbol = 'o'
+        assert symbol in cls._symbols
+        return cls._symbols[symbol]
+
     @property
     def path(self):
         return self._path
@@ -644,40 +678,7 @@ class SpotPixmap(object):
         self._pixmap = QtGui.QPixmap(spotImage)
 
     def _setPath(self, symbol):
-        path = QtGui.QPainterPath()
-        if symbol == 'o':
-            path.addEllipse(QtCore.QRectF(-0.5, -0.5, 1, 1))
-        elif symbol == 's':
-            path.addRect(QtCore.QRectF(-0.5, -0.5, 1, 1))
-        elif symbol == 't' or symbol == '^':
-            path.moveTo(-0.5, -0.5)
-            path.lineTo(0, 0.5)
-            path.lineTo(0.5, -0.5)
-            path.closeSubpath()
-        elif symbol == 'd':
-            path.moveTo(0., -0.5)
-            path.lineTo(-0.4, 0.)
-            path.lineTo(0, 0.5)
-            path.lineTo(0.4, 0)
-            path.closeSubpath()
-        elif symbol == '+':
-            path.moveTo(-0.5, -0.01)
-            path.lineTo(-0.5, 0.01)
-            path.lineTo(-0.01, 0.01)
-            path.lineTo(-0.01, 0.5)
-            path.lineTo(0.01, 0.5)
-            path.lineTo(0.01, 0.01)
-            path.lineTo(0.5, 0.01)
-            path.lineTo(0.5, -0.01)
-            path.lineTo(0.01, -0.01)
-            path.lineTo(0.01, -0.5)
-            path.lineTo(-0.01, -0.5)
-            path.lineTo(-0.01, -0.01)
-            path.closeSubpath()
-        else:
-            raise Exception("Unknown spot symbol '%s' (type=%s)" %
-                            (str(symbol), str(type(symbol))))
-        self._path = path
+        self._path = self.symbols(symbol)
         # recreate the pixmap if the path changed
         self._setPixmap()
 
