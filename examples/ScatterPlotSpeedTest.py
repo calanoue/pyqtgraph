@@ -15,7 +15,9 @@ app = QtGui.QApplication([])
 #mw.resize(800,800)
 
 p = pg.plot()
-p.setRange(QtCore.QRectF(0, -10, 5000, 20)) 
+#p.setRange(QtCore.QRectF(0, -10, 5000, 20))
+p.setRange(QtCore.QRectF(-5, -5, 10, 10))
+#p.enableAutoRange()
 p.setLabel('bottom', 'Index', units='B')
 
 #curve.setFillBrush((0, 0, 100, 100))
@@ -27,7 +29,7 @@ p.setLabel('bottom', 'Index', units='B')
 data = np.random.normal(size=(50,5000))
 ptr = 0
 lastTime = time()
-fps = None
+fps = [] # remember fps for some statistics afterwards
 def update():
     global curve, data, ptr, p, lastTime, fps
     p.clear()
@@ -37,19 +39,20 @@ def update():
     now = time()
     dt = now - lastTime
     lastTime = now
-    if fps is None:
-        fps = 1.0/dt
+    if len(fps) <= 0:
+        fps.append(1.0/dt)
     else:
         s = np.clip(dt*3., 0, 1)
-        fps = fps * (1-s) + (1.0/dt) * s
-    p.setTitle('%0.2f fps' % fps)
+        fps.append(fps[-1] * (1-s) + (1.0/dt) * s)
+    p.setTitle('%0.2f fps' % fps[-1])
     app.processEvents()  ## force complete redraw for every plot
 timer = QtCore.QTimer()
 timer.timeout.connect(update)
 timer.start(0)
     
-
-
 ## Start Qt event loop unless running in interactive mode.
 if sys.flags.interactive != 1:
     app.exec_()
+
+fps = fps[3:] # leave out errorneous initialization outliers
+print "For {0} frames, on average {1} fps.".format(len(fps), sum(fps)/len(fps))
